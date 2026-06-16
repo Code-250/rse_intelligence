@@ -1,0 +1,10 @@
+anthropic
+pdfplumber
+psycopg2-binary
+python-dotenv
+requests
+schedule
+fastapi
+uvicorn
+python-multipart
+openai>=1.30.0

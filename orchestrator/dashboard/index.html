@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0D2B4E">
+  <title>RSE Intelligence — Agent Hub</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy:   #0D2B4E;
+      --teal:   #00796B;
+      --accent: #1565C0;
+      --gold:   #E65100;
+      --purple: #4A148C;
+      --green:  #1B5E20;
+      --red:    #B71C1C;
+      --bg:     #F0F4F8;
+      --card:   #FFFFFF;
+      --text:   #1A1A2E;
+      --muted:  #546E7A;
+      --border: #CFD8DC;
+      --radius: 12px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding-bottom: 80px;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: var(--navy);
+      color: white;
+      padding: 16px 20px 12px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+    }
+    .header-top { display: flex; align-items: center; justify-content: space-between; }
+    .header h1 { font-size: 18px; font-weight: 700; letter-spacing: 0.3px; }
+    .header-sub { font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 2px; }
+    .status-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: #4CAF50; box-shadow: 0 0 6px #4CAF50;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+    /* ── Nav tabs ── */
+    .nav {
+      display: flex;
+      background: var(--navy);
+      border-top: 1px solid rgba(255,255,255,0.1);
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .nav::-webkit-scrollbar { display: none; }
+    .nav-btn {
+      flex: none;
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.55);
+      border: none;
+      background: none;
+      cursor: pointer;
+      white-space: nowrap;
+      border-bottom: 3px solid transparent;
+      transition: all 0.2s;
+    }
+    .nav-btn.active { color: white; border-bottom-color: #00C9A7; }
+
+    /* ── Sections ── */
+    .section { display: none; padding: 16px; }
+    .section.active { display: block; }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+    .card-title {
+      font-size: 13px; font-weight: 700;
+      color: var(--muted); text-transform: uppercase;
+      letter-spacing: 0.5px; margin-bottom: 12px;
+    }
+
+    /* ── Agent grid ── */
+    .agent-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .agent-card {
+      border-radius: 10px;
+      padding: 14px 12px;
+      color: white;
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.15s;
+      user-select: none;
+    }
+    .agent-card:active { transform: scale(0.96); }
+    .agent-card.coordinator   { background: linear-gradient(135deg, #0D2B4E, #1565C0); }
+    .agent-card.backend       { background: linear-gradient(135deg, #00796B, #26A69A); }
+    .agent-card.mobile        { background: linear-gradient(135deg, #1565C0, #42A5F5); }
+    .agent-card.pm            { background: linear-gradient(135deg, #E65100, #FFA726); }
+    .agent-card.marketing     { background: linear-gradient(135deg, #4A148C, #9C27B0); }
+    .agent-card.deployment    { background: linear-gradient(135deg, #1B5E20, #43A047); }
+    .agent-emoji { font-size: 24px; margin-bottom: 6px; }
+    .agent-name  { font-size: 13px; font-weight: 700; }
+    .agent-role  { font-size: 11px; opacity: 0.75; margin-top: 2px; }
+    .agent-card.selected { box-shadow: 0 0 0 3px white, 0 0 0 5px rgba(0,201,167,0.7); }
+
+    /* ── Chat ── */
+    .chat-header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 16px;
+      background: var(--navy);
+      border-radius: var(--radius) var(--radius) 0 0;
+      margin-bottom: 0;
+    }
+    .chat-agent-name { color: white; font-weight: 700; font-size: 15px; }
+    .chat-agent-role { color: rgba(255,255,255,0.6); font-size: 12px; }
+    .chat-box {
+      background: var(--card);
+      border-radius: 0 0 var(--radius) var(--radius);
+      height: 340px;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      scroll-behavior: smooth;
+    }
+    .msg { max-width: 85%; padding: 10px 14px; border-radius: 16px; font-size: 14px; line-height: 1.5; }
+    .msg.user {
+      background: var(--navy); color: white;
+      border-bottom-right-radius: 4px;
+      align-self: flex-end;
+    }
+    .msg.assistant {
+      background: #EEF4FB; color: var(--text);
+      border-bottom-left-radius: 4px;
+      align-self: flex-start;
+    }
+    .msg.system { background: #FFF3E0; color: #E65100; align-self: center; font-size: 12px; font-style: italic; }
+    .msg-time { font-size: 10px; opacity: 0.5; margin-top: 4px; }
+
+    .chat-input-row {
+      display: flex; gap: 8px; padding: 12px;
+      background: var(--card);
+      border-top: 1px solid var(--border);
+      border-radius: 0 0 var(--radius) var(--radius);
+    }
+    .chat-input {
+      flex: 1; padding: 10px 14px;
+      border: 1.5px solid var(--border); border-radius: 24px;
+      font-size: 14px; outline: none; transition: border-color 0.2s;
+      background: var(--bg);
+    }
+    .chat-input:focus { border-color: var(--teal); }
+    .chat-send {
+      width: 42px; height: 42px; border-radius: 50%;
+      background: var(--teal); color: white; border: none;
+      font-size: 18px; cursor: pointer; display: flex;
+      align-items: center; justify-content: center; transition: background 0.2s;
+      flex-shrink: 0;
+    }
+    .chat-send:hover { background: #005A4F; }
+    .chat-send:disabled { background: var(--border); cursor: not-allowed; }
+
+    /* ── Activity feed ── */
+    .activity-item {
+      display: flex; gap: 12px; align-items: flex-start;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .activity-item:last-child { border-bottom: none; }
+    .activity-icon {
+      width: 36px; height: 36px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; flex-shrink: 0;
+    }
+    .activity-text { flex: 1; }
+    .activity-agent { font-size: 12px; font-weight: 700; color: var(--muted); }
+    .activity-summary { font-size: 13px; color: var(--text); margin-top: 2px; line-height: 1.4; }
+    .activity-time { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+    /* ── Tickets ── */
+    .ticket-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 0; border-bottom: 1px solid var(--border);
+    }
+    .ticket-item:last-child { border-bottom: none; }
+    .ticket-status {
+      width: 20px; height: 20px; border-radius: 50%;
+      flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+      font-size: 12px;
+    }
+    .ticket-status.done { background: #E8F5E9; color: var(--green); }
+    .ticket-status.todo { background: #EEF4FB; color: var(--accent); }
+    .ticket-id { font-size: 11px; font-weight: 700; color: var(--teal); flex-shrink: 0; min-width: 60px; }
+    .ticket-title { font-size: 13px; flex: 1; line-height: 1.3; }
+    .ticket-owner { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+
+    /* ── Stats row ── */
+    .stats-row { display: flex; gap: 10px; margin-bottom: 16px; }
+    .stat-card {
+      flex: 1; background: var(--card); border-radius: 10px;
+      padding: 12px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+    .stat-number { font-size: 28px; font-weight: 800; color: var(--navy); }
+    .stat-label  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+    /* ── Misc ── */
+    .empty { text-align: center; color: var(--muted); font-size: 14px; padding: 32px 0; }
+    .badge {
+      display: inline-block; padding: 2px 8px;
+      border-radius: 12px; font-size: 11px; font-weight: 700;
+    }
+    .badge-blue   { background: #E3F2FD; color: var(--accent); }
+    .badge-green  { background: #E8F5E9; color: var(--green); }
+    .badge-orange { background: #FFF3E0; color: var(--gold); }
+    .loading { text-align: center; padding: 20px; color: var(--muted); font-size: 13px; }
+
+    /* ── Bottom nav ── */
+    .bottom-nav {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: var(--navy);
+      display: flex;
+      box-shadow: 0 -2px 12px rgba(0,0,0,0.2);
+      z-index: 100;
+    }
+    .bottom-btn {
+      flex: 1; padding: 10px 0 12px;
+      border: none; background: none;
+      color: rgba(255,255,255,0.5);
+      cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+      font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+      transition: color 0.2s;
+    }
+    .bottom-btn .icon { font-size: 20px; }
+    .bottom-btn.active { color: #00C9A7; }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-top">
+    <div>
+      <h1>RSE Intelligence</h1>
+      <div class="header-sub" id="headerSub">Agent Hub — Loading...</div>
+    </div>
+    <div class="status-dot" id="statusDot" title="Orchestrator online"></div>
+  </div>
+  <div class="nav" id="nav" style="margin-top:10px; border-radius:8px; overflow:hidden;">
+    <button class="nav-btn active" onclick="showSection('chat')">💬 Chat</button>
+    <button class="nav-btn" onclick="showSection('activity')">📊 Activity</button>
+    <button class="nav-btn" onclick="showSection('tickets')">🎫 Tickets</button>
+    <button class="nav-btn" onclick="showSection('agents')">🤖 Agents</button>
+  </div>
+</div>
+
+<!-- ══ CHAT SECTION ══════════════════════════════════════════════════════════ -->
+<div class="section active" id="section-chat">
+
+  <!-- Agent picker -->
+  <div class="agent-grid" style="margin-top:4px;">
+    <div class="agent-card coordinator selected" onclick="selectAgent('coordinator','🧠','Coordinator','CTO Layer')" id="card-coordinator">
+      <div class="agent-emoji">🧠</div>
+      <div class="agent-name">Coordinator</div>
+      <div class="agent-role">CTO Layer</div>
+    </div>
+    <div class="agent-card pm" onclick="selectAgent('project-manager','🎫','PM Agent','Tickets & PRs')" id="card-project-manager">
+      <div class="agent-emoji">🎫</div>
+      <div class="agent-name">PM Agent</div>
+      <div class="agent-role">Tickets & PRs</div>
+    </div>
+    <div class="agent-card backend" onclick="selectAgent('backend-ai-dev','🔧','Backend Agent','Python · NIM')" id="card-backend-ai-dev">
+      <div class="agent-emoji">🔧</div>
+      <div class="agent-name">Backend Agent</div>
+      <div class="agent-role">Python · NIM</div>
+    </div>
+    <div class="agent-card mobile" onclick="selectAgent('mobile-frontend-dev','📱','Mobile Agent','React Native')" id="card-mobile-frontend-dev">
+      <div class="agent-emoji">📱</div>
+      <div class="agent-name">Mobile Agent</div>
+      <div class="agent-role">React Native</div>
+    </div>
+    <div class="agent-card marketing" onclick="selectAgent('sales-marketing','📣','Marketing','Analytics')" id="card-sales-marketing">
+      <div class="agent-emoji">📣</div>
+      <div class="agent-name">Marketing</div>
+      <div class="agent-role">Analytics</div>
+    </div>
+    <div class="agent-card deployment" onclick="selectAgent('deployment','🚀','Deployment','CI/CD')" id="card-deployment">
+      <div class="agent-emoji">🚀</div>
+      <div class="agent-name">Deployment</div>
+      <div class="agent-role">CI/CD</div>
+    </div>
+  </div>
+
+  <!-- Chat window -->
+  <div style="border-radius: var(--radius); overflow:hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.1); margin-bottom:12px;">
+    <div class="chat-header">
+      <div style="font-size:22px;" id="chatEmoji">🧠</div>
+      <div>
+        <div class="chat-agent-name" id="chatAgentName">Coordinator</div>
+        <div class="chat-agent-role" id="chatAgentRole">CTO Layer — Ask me anything</div>
+      </div>
+    </div>
+    <div class="chat-box" id="chatBox">
+      <div class="msg assistant">
+        👋 Hello Richard. I'm your Coordinator Agent — the CTO of RSE Intelligence.
+        You can talk to any agent by tapping their card above. What do you need today?
+      </div>
+    </div>
+    <div class="chat-input-row">
+      <input class="chat-input" id="chatInput" placeholder="Ask your agent..." autocomplete="off"
+             onkeydown="if(event.key==='Enter')sendMessage()">
+      <button class="chat-send" id="sendBtn" onclick="sendMessage()">➤</button>
+    </div>
+  </div>
+
+  <!-- Quick commands -->
+  <div class="card">
+    <div class="card-title">Quick Commands</div>
+    <div style="display:flex; flex-wrap:wrap; gap:8px;">
+      <button class="badge badge-blue" style="cursor:pointer;padding:6px 12px;" onclick="quickMsg('What is the status of Sprint 1?')">Sprint status</button>
+      <button class="badge badge-blue" style="cursor:pointer;padding:6px 12px;" onclick="quickMsg('Show me the PR queue')">PR queue</button>
+      <button class="badge badge-green" style="cursor:pointer;padding:6px 12px;" onclick="quickMsg('What did you accomplish today?')">Today\'s work</button>
+      <button class="badge badge-orange" style="cursor:pointer;padding:6px 12px;" onclick="quickMsg('Are there any blockers I should know about?')">Blockers</button>
+      <button class="badge badge-blue" style="cursor:pointer;padding:6px 12px;" onclick="quickMsg('What marketing platform should we launch on first and why?')">Ad strategy</button>
+      <button class="badge badge-green" style="cursor:pointer;padding:6px 12px;" onclick="quickMsg('What is the deployment status?')">Deploy status</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══ ACTIVITY SECTION ══════════════════════════════════════════════════════ -->
+<div class="section" id="section-activity">
+
+  <div class="stats-row" id="statsRow">
+    <div class="stat-card">
+      <div class="stat-number" id="statMessages">—</div>
+      <div class="stat-label">Messages Today</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number" id="statAgents">6</div>
+      <div class="stat-label">Active Agents</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number" id="statActions">—</div>
+      <div class="stat-label">Actions Today</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Live Activity Feed <span id="activityBadge" class="badge badge-blue" style="float:right;">Last 24h</span></div>
+    <div id="activityFeed"><div class="loading">Loading activity...</div></div>
+  </div>
+
+</div>
+
+<!-- ══ TICKETS SECTION ════════════════════════════════════════════════════════ -->
+<div class="section" id="section-tickets">
+
+  <div class="card">
+    <div class="card-title">Sprint 1 — Financial Doc Analyzer</div>
+    <div id="ticketList"><div class="loading">Loading tickets...</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">PR Queue — Awaiting Your Approval</div>
+    <div id="prQueue"><div class="loading">Loading...</div></div>
+  </div>
+
+</div>
+
+<!-- ══ AGENTS SECTION ═════════════════════════════════════════════════════════ -->
+<div class="section" id="section-agents">
+
+  <div class="card">
+    <div class="card-title">Agent Roster</div>
+    <div id="agentRoster">
+      <div class="activity-item">
+        <div class="activity-icon" style="background:#EEF4FB;">🧠</div>
+        <div class="activity-text">
+          <div class="activity-agent">COORDINATOR</div>
+          <div class="activity-summary">CTO Layer — Orchestrates all agents, makes architecture decisions, structures deployments.</div>
+          <div class="activity-time">✅ Active</div>
+        </div>
+      </div>
+      <div class="activity-item">
+        <div class="activity-icon" style="background:#E0F2F1;">🔧</div>
+        <div class="activity-text">
+          <div class="activity-agent">BACKEND / AI DEVELOPER</div>
+          <div class="activity-summary">Python · FastAPI · PostgreSQL · NVIDIA NIM · Signal Engines</div>
+          <div class="activity-time">✅ Active — Sprint 1 in progress</div>
+        </div>
+      </div>
+      <div class="activity-item">
+        <div class="activity-icon" style="background:#E3F2FD;">📱</div>
+        <div class="activity-text">
+          <div class="activity-agent">MOBILE / FRONTEND DEVELOPER</div>
+          <div class="activity-summary">React Native · React Web · iOS · Android · UI/UX</div>
+          <div class="activity-time">✅ Active — Activated 16 June 2026</div>
+        </div>
+      </div>
+      <div class="activity-item">
+        <div class="activity-icon" style="background:#FFF3E0;">🎫</div>
+        <div class="activity-text">
+          <div class="activity-agent">PROJECT MANAGER</div>
+          <div class="activity-summary">GitHub tickets · PR reviews · Bug triage · Deadline tracking</div>
+          <div class="activity-time">✅ Active</div>
+        </div>
+      </div>
+      <div class="activity-item">
+        <div class="activity-icon" style="background:#F3E5F5;">📣</div>
+        <div class="activity-text">
+          <div class="activity-agent">SALES & MARKETING</div>
+          <div class="activity-summary">App store analytics · Ad platform recommendations · Revenue modelling</div>
+          <div class="activity-time">🕐 Activates at Product 1 Beta</div>
+        </div>
+      </div>
+      <div class="activity-item">
+        <div class="activity-icon" style="background:#E8F5E9;">🚀</div>
+        <div class="activity-text">
+          <div class="activity-agent">DEPLOYMENT</div>
+          <div class="activity-summary">CI/CD · Staging · Production · Rollback · Release notes</div>
+          <div class="activity-time">🕐 Activates Week 6 of Product 1</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Non-Negotiables</div>
+    <div style="font-size:13px; line-height:1.8; color:var(--text);">
+      🔒 No PR merges without <strong>your</strong> GitHub approval<br>
+      💰 No marketing spend without your sign-off<br>
+      🚦 Staging before every production deploy<br>
+      🔄 Rollback procedure always ready<br>
+      ⚖️ Advisor Copilot = draft assistant, not autonomous advice<br>
+      🔐 No user data used to train external models
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // ── State ──────────────────────────────────────────────────────────────────
+  const API = window.location.origin;
+  let currentAgent = 'coordinator';
+  let sessionId = localStorage.getItem('sessionId') || '';
+  let isLoading = false;
+
+  const AGENT_META = {
+    'coordinator':         { emoji:'🧠', name:'Coordinator',    role:'CTO Layer' },
+    'backend-ai-dev':      { emoji:'🔧', name:'Backend Agent',  role:'Python · NVIDIA NIM' },
+    'mobile-frontend-dev': { emoji:'📱', name:'Mobile Agent',   role:'React Native · React Web' },
+    'project-manager':     { emoji:'🎫', name:'PM Agent',       role:'Tickets & PR Reviews' },
+    'sales-marketing':     { emoji:'📣', name:'Marketing Agent',role:'Analytics · Revenue' },
+    'deployment':          { emoji:'🚀', name:'Deployment Agent',role:'CI/CD · Staging · Prod' },
+  };
+
+  // ── Navigation ─────────────────────────────────────────────────────────────
+  function showSection(name) {
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('section-' + name).classList.add('active');
+    event.target.classList.add('active');
+
+    if (name === 'activity') loadActivity();
+    if (name === 'tickets')  { loadTickets(); loadPRQueue(); }
+  }
+
+  // ── Agent selection ────────────────────────────────────────────────────────
+  function selectAgent(agentId, emoji, name, role) {
+    currentAgent = agentId;
+    sessionId = '';  // New session per agent switch
+    localStorage.removeItem('sessionId');
+
+    document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('selected'));
+    document.getElementById('card-' + agentId).classList.add('selected');
+
+    document.getElementById('chatEmoji').textContent = emoji;
+    document.getElementById('chatAgentName').textContent = name;
+    document.getElementById('chatAgentRole').textContent = role + ' — Ask me anything';
+
+    const box = document.getElementById('chatBox');
+    box.innerHTML = `<div class="msg system">Switched to ${name}</div>`;
+
+    const meta = AGENT_META[agentId];
+    addMessage('assistant', `Hi Richard. I'm your ${meta.name}. How can I help you today?`);
+  }
+
+  // ── Chat ───────────────────────────────────────────────────────────────────
+  function addMessage(role, text, time) {
+    const box = document.getElementById('chatBox');
+    const div = document.createElement('div');
+    div.className = 'msg ' + role;
+    const t = time || new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    div.innerHTML = `${escapeHtml(text)}<div class="msg-time">${t}</div>`;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function addTyping() {
+    const box = document.getElementById('chatBox');
+    const div = document.createElement('div');
+    div.className = 'msg assistant';
+    div.id = 'typing-indicator';
+    div.innerHTML = '<span style="opacity:0.6">Agent is thinking...</span>';
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+    return div;
+  }
+
+  async function sendMessage() {
+    const input = document.getElementById('chatInput');
+    const text = input.value.trim();
+    if (!text || isLoading) return;
+
+    isLoading = true;
+    input.value = '';
+    document.getElementById('sendBtn').disabled = true;
+
+    addMessage('user', text);
+    const typing = addTyping();
+
+    try {
+      const resp = await fetch(`${API}/api/chat`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ message: text, agent: currentAgent, session_id: sessionId }),
+      });
+      const data = await resp.json();
+      sessionId = data.session_id;
+      localStorage.setItem('sessionId', sessionId);
+      typing.remove();
+      addMessage('assistant', data.response);
+    } catch (err) {
+      typing.remove();
+      addMessage('system', '⚠️ Could not reach the orchestrator. Check your connection.');
+    }
+
+    isLoading = false;
+    document.getElementById('sendBtn').disabled = false;
+    input.focus();
+  }
+
+  function quickMsg(text) {
+    document.getElementById('chatInput').value = text;
+    document.querySelectorAll('.nav-btn')[0].click();
+    sendMessage();
+  }
+
+  // ── Activity feed ──────────────────────────────────────────────────────────
+  const ACTION_ICONS = {
+    message:        { icon:'💬', color:'#EEF4FB' },
+    ticket_created: { icon:'🎫', color:'#FFF3E0' },
+    pr_reviewed:    { icon:'🔍', color:'#E3F2FD' },
+    deploy:         { icon:'🚀', color:'#E8F5E9' },
+    digest_sent:    { icon:'📨', color:'#F3E5F5' },
+    blocker_alert:  { icon:'⚠️', color:'#FFEBEE' },
+    blocker_check:  { icon:'✅', color:'#E8F5E9' },
+  };
+
+  async function loadActivity() {
+    try {
+      const [actResp, sumResp] = await Promise.all([
+        fetch(`${API}/api/activity`),
+        fetch(`${API}/api/summary`),
+      ]);
+      const act = await actResp.json();
+      const sum = await sumResp.json();
+
+      // Stats
+      document.getElementById('statMessages').textContent = sum.total_messages || 0;
+      const totalActions = (sum.agent_stats || []).reduce((a,s) => a + s.action_count, 0);
+      document.getElementById('statActions').textContent = totalActions;
+
+      // Feed
+      const feed = document.getElementById('activityFeed');
+      if (!act.events || act.events.length === 0) {
+        feed.innerHTML = '<div class="empty">No activity yet. Start by chatting with an agent.</div>';
+        return;
+      }
+
+      feed.innerHTML = act.events.map(e => {
+        const meta = ACTION_ICONS[e.action_type] || { icon:'🤖', color:'#EEF4FB' };
+        const agentLabel = e.agent_name.replace(/-/g,' ').replace(/\b\w/g, c=>c.toUpperCase());
+        const timeAgo = formatTimeAgo(new Date(e.created_at));
+        return `
+          <div class="activity-item">
+            <div class="activity-icon" style="background:${meta.color};">${meta.icon}</div>
+            <div class="activity-text">
+              <div class="activity-agent">${agentLabel}</div>
+              <div class="activity-summary">${escapeHtml(e.summary)}</div>
+              <div class="activity-time">${timeAgo}</div>
+            </div>
+          </div>`;
+      }).join('');
+    } catch {
+      document.getElementById('activityFeed').innerHTML =
+        '<div class="empty">⚠️ Cannot load activity. Is the orchestrator running?</div>';
+    }
+  }
+
+  // ── Tickets ────────────────────────────────────────────────────────────────
+  async function loadTickets() {
+    try {
+      const resp = await fetch(`${API}/api/tickets`);
+      const data = await resp.json();
+      const list = document.getElementById('ticketList');
+
+      if (!data.tickets || data.tickets.length === 0) {
+        list.innerHTML = '<div class="empty">No tickets found.</div>';
+        return;
+      }
+
+      const done = data.tickets.filter(t => t.done).length;
+      const total = data.tickets.length;
+
+      list.innerHTML = `
+        <div style="margin-bottom:12px;">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">${done}/${total} completed</div>
+          <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden;">
+            <div style="background:var(--teal);height:100%;width:${Math.round(done/total*100)}%;transition:width 0.5s;"></div>
+          </div>
+        </div>
+        ${data.tickets.map(t => `
+          <div class="ticket-item">
+            <div class="ticket-status ${t.done ? 'done' : 'todo'}">${t.done ? '✓' : '○'}</div>
+            <div class="ticket-id">${t.id}</div>
+            <div class="ticket-title">${escapeHtml(t.title)}</div>
+            <div class="ticket-owner" style="font-size:10px;">${t.owner || ''}</div>
+          </div>`).join('')}`;
+    } catch {
+      document.getElementById('ticketList').innerHTML =
+        '<div class="empty">⚠️ Cannot load tickets.</div>';
+    }
+  }
+
+  async function loadPRQueue() {
+    try {
+      const resp = await fetch(`${API}/api/pr-queue`);
+      const data = await resp.json();
+      const el = document.getElementById('prQueue');
+
+      if (!data.prs || data.prs.length === 0) {
+        el.innerHTML = '<div class="empty" style="padding:16px 0;">✅ No PRs awaiting your review.</div>';
+      } else {
+        el.innerHTML = data.prs.map(pr => `
+          <div class="activity-item">
+            <div class="activity-icon" style="background:#EEF4FB;">🔍</div>
+            <div class="activity-text">
+              <div class="activity-agent">PR #${pr.number}</div>
+              <div class="activity-summary">${escapeHtml(pr.title)}</div>
+              <div class="activity-time">Risk: ${pr.risk} — ${pr.opened}</div>
+            </div>
+          </div>`).join('');
+      }
+    } catch {
+      document.getElementById('prQueue').innerHTML =
+        '<div class="empty">⚠️ Cannot load PR queue.</div>';
+    }
+  }
+
+  // ── Health check ───────────────────────────────────────────────────────────
+  async function checkHealth() {
+    try {
+      const resp = await fetch(`${API}/health`, { signal: AbortSignal.timeout(5000) });
+      const dot = document.getElementById('statusDot');
+      if (resp.ok) {
+        dot.style.background = '#4CAF50';
+        document.getElementById('headerSub').textContent = 'All agents online · ' + new Date().toLocaleTimeString();
+      } else {
+        dot.style.background = '#FF5722';
+        document.getElementById('headerSub').textContent = 'Orchestrator error';
+      }
+    } catch {
+      document.getElementById('statusDot').style.background = '#9E9E9E';
+      document.getElementById('headerSub').textContent = 'Orchestrator offline';
+    }
+  }
+
+  // ── Utilities ──────────────────────────────────────────────────────────────
+  function formatTimeAgo(date) {
+    const s = Math.floor((Date.now() - date) / 1000);
+    if (s < 60)   return 'just now';
+    if (s < 3600) return Math.floor(s/60) + 'm ago';
+    if (s < 86400)return Math.floor(s/3600) + 'h ago';
+    return Math.floor(s/86400) + 'd ago';
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── Init ───────────────────────────────────────────────────────────────────
+  checkHealth();
+  setInterval(checkHealth, 30000);  // Re-check every 30s
+</script>
+
+</body>
+</html>
