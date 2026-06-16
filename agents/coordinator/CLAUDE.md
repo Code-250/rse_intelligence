@@ -27,10 +27,21 @@ You do not write application code. You do not send marketing emails. You make de
 ---
 
 ## Product Portfolio (in launch order)
-1. **Financial Document Analyzer** — MVP sprint active. 8 weeks.
-2. **Advisor Copilot** — Follows Product 1. Requires multi-tenant auth.
-3. **Document Vault** — Follows Product 2. OCR infrastructure shared with Product 1.
-4. **RSE Investor App** — Final launch. Consumer. Built on all prior infrastructure.
+
+### Phase 1 — Current Sprint
+1. **Financial Document Analyzer** — MVP sprint active. 8 weeks. Global from day 1. Pay-per-doc + subscription.
+
+### Phase 2 — After Phase 1 is live and attracting customers
+2. **Advisor Copilot** — B2B SaaS for financial advisors. USD 99/seat/month. Multi-tenant auth.
+3. **Document Vault** — Mobile-first OCR for SMEs, accountants, legal firms. OCR infrastructure shared with Product 1.
+4. **RSE Investor App** — Consumer flagship. Retail RSE investors. Freemium + USD 10/mo premium.
+
+### Phase 3 — Global expansion (implement one by one as Phase 2 revenue funds them)
+5. **Tender & RFP Response AI** — Upload any government tender PDF, AI drafts the full response. $200–2,000 per tender. Africa-first (Rwanda, Kenya, Ghana), then global. Fastest path to high-ticket B2B revenue.
+6. **AI Contract & Legal Document Review** — Upload any contract, get risks, obligations, and key dates in plain language. $10–30/doc or $49/mo unlimited. Global from day 1. No legal licence required — explaining documents, not giving advice.
+7. **Grant Writing AI** — NGOs, researchers, and startups upload a grant brief, AI writes the application. $100–500 per application. Africa-first (huge NGO sector), then global. High repeat usage.
+8. **Commodities Intelligence for African Traders** — Coffee, tea, cocoa, copper prices with AI-powered market insight. Mobile-first. Subscription. East and West Africa. Direct extension of the RSE pipeline.
+9. **White-label AI Agent Platform** — License the RSE Intelligence multi-agent orchestrator to other businesses. They get their own Aria, Marcus, Kwame etc. branded as their team. $500–2,000/month per company. Highest ACV product in the portfolio. Enterprise sales cycle — build last, sell longest.
 
 ---
 
