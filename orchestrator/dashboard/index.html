@@ -2,907 +2,825 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#0D2B4E">
-  <title>RSE Intelligence — Agent Hub</title>
+  <meta name="theme-color" content="#0A1628">
+  <title>RSE Intelligence</title>
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 
     :root {
-      --navy:   #0D2B4E;
-      --teal:   #00796B;
-      --accent: #1565C0;
-      --gold:   #E65100;
-      --purple: #4A148C;
-      --green:  #1B5E20;
-      --red:    #B71C1C;
-      --bg:     #F0F4F8;
-      --card:   #FFFFFF;
-      --text:   #1A1A2E;
-      --muted:  #546E7A;
-      --border: #CFD8DC;
-      --radius: 12px;
+      --navy:      #0A1628;
+      --navy2:     #0D2B4E;
+      --teal:      #00897B;
+      --teal-light:#4DB6AC;
+      --accent:    #1976D2;
+      --sent-bg:   #E7FFDB;
+      --sent-text: #111;
+      --recv-bg:   #FFFFFF;
+      --recv-text: #111;
+      --chat-wall: #EFE7DC;
+      --online:    #25D366;
+      --surface:   #FFFFFF;
+      --bg:        #F5F7FA;
+      --border:    #E8ECF0;
+      --text-1:    #0A1628;
+      --text-2:    #5A6577;
+      --text-3:    #9BA5B4;
+      --radius-sm: 8px;
+      --radius-md: 16px;
+      --radius-lg: 24px;
     }
 
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif; background: var(--bg); color: var(--text-1); }
+
+    /* ─── Screen navigation ──────────────────────────────── */
+    .screen {
+      position: fixed; inset: 0;
+      display: flex; flex-direction: column;
       background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      padding-bottom: 80px;
+      transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+      will-change: transform;
     }
+    .screen.behind  { transform: translateX(-28%); pointer-events: none; }
+    .screen.offscreen { transform: translateX(100%); pointer-events: none; }
 
-    /* ── Header ── */
-    .header {
-      background: var(--navy);
-      color: white;
-      padding: 16px 20px 12px;
-      position: sticky;
-      top: 0;
-      z-index: 100;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.3);
-    }
-    .header-top { display: flex; align-items: center; justify-content: space-between; }
-    .header h1 { font-size: 18px; font-weight: 700; letter-spacing: 0.3px; }
-    .header-sub { font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 2px; }
-    .status-dot {
-      width: 10px; height: 10px; border-radius: 50%;
-      background: #4CAF50; box-shadow: 0 0 6px #4CAF50;
-      animation: pulse 2s infinite;
-    }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
-
-    /* ── Nav tabs ── */
-    .nav {
-      display: flex;
-      background: var(--navy);
-      border-top: 1px solid rgba(255,255,255,0.1);
-      overflow-x: auto;
-      scrollbar-width: none;
-    }
-    .nav::-webkit-scrollbar { display: none; }
-    .nav-btn {
-      flex: none;
-      padding: 10px 16px;
-      font-size: 13px;
-      font-weight: 600;
-      color: rgba(255,255,255,0.55);
-      border: none;
-      background: none;
-      cursor: pointer;
-      white-space: nowrap;
-      border-bottom: 3px solid transparent;
-      transition: all 0.2s;
-    }
-    .nav-btn.active { color: white; border-bottom-color: #00C9A7; }
-
-    /* ── Sections ── */
-    .section { display: none; padding: 16px; }
-    .section.active { display: block; }
-
-    /* ── Cards ── */
-    .card {
-      background: var(--card);
-      border-radius: var(--radius);
-      padding: 16px;
-      margin-bottom: 12px;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-    }
-    .card-title {
-      font-size: 13px; font-weight: 700;
-      color: var(--muted); text-transform: uppercase;
-      letter-spacing: 0.5px; margin-bottom: 12px;
-    }
-
-    /* ── Agent grid ── */
-    .agent-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      margin-bottom: 16px;
-    }
-    .agent-card {
-      border-radius: 12px;
-      padding: 14px 12px;
-      color: white;
-      cursor: pointer;
-      transition: transform 0.15s, box-shadow 0.15s;
-      user-select: none;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .agent-card:active { transform: scale(0.96); }
-    .agent-card.coordinator   { background: linear-gradient(135deg, #0D2B4E, #1565C0); }
-    .agent-card.backend       { background: linear-gradient(135deg, #00796B, #26A69A); }
-    .agent-card.mobile        { background: linear-gradient(135deg, #1565C0, #42A5F5); }
-    .agent-card.pm            { background: linear-gradient(135deg, #E65100, #FFA726); }
-    .agent-card.marketing     { background: linear-gradient(135deg, #4A148C, #9C27B0); }
-    .agent-card.deployment    { background: linear-gradient(135deg, #1B5E20, #43A047); }
-    .agent-avatar {
-      width: 44px; height: 44px; border-radius: 50%;
-      border: 2px solid rgba(255,255,255,0.5);
-      background: rgba(255,255,255,0.15);
+    /* ─── Shared top bar ─────────────────────────────────── */
+    .topbar {
       flex-shrink: 0;
-      overflow: hidden;
-    }
-    .agent-avatar img { width: 100%; height: 100%; object-fit: cover; }
-    .agent-info { flex: 1; min-width: 0; }
-    .agent-name  { font-size: 13px; font-weight: 700; line-height: 1.2; }
-    .agent-human-name { font-size: 11px; opacity: 0.85; margin-top: 1px; }
-    .agent-role  { font-size: 10px; opacity: 0.7; margin-top: 1px; }
-    .agent-card.selected { box-shadow: 0 0 0 3px white, 0 0 0 5px rgba(0,201,167,0.7); }
-
-    /* ── WhatsApp-style Chat ── */
-    .wa-window {
-      border-radius: var(--radius);
-      overflow: hidden;
-      box-shadow: 0 2px 16px rgba(0,0,0,0.13);
-      display: flex;
-      flex-direction: column;
-      margin-bottom: 12px;
-    }
-
-    /* Header — WhatsApp green bar */
-    .wa-header {
-      background: #075E54;
-      padding: 10px 14px;
+      background: var(--navy);
+      color: white;
       display: flex;
       align-items: center;
-      gap: 10px;
+      padding: 54px 16px 14px;
+      gap: 12px;
+      position: relative;
     }
-    .wa-back { color: white; font-size: 20px; opacity: 0.85; cursor: pointer; flex-shrink: 0; }
-    .wa-avatar {
-      width: 38px; height: 38px; border-radius: 50%;
-      overflow: hidden; flex-shrink: 0;
-      background: rgba(255,255,255,0.15);
+    .topbar-back {
+      width: 36px; height: 36px;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(255,255,255,0.12);
+      border-radius: 50%; border: none; color: white;
+      font-size: 20px; cursor: pointer; flex-shrink: 0;
     }
-    .wa-avatar img { width: 100%; height: 100%; object-fit: cover; }
-    .wa-info { flex: 1; min-width: 0; }
-    .wa-name { color: white; font-size: 15px; font-weight: 600; line-height: 1.2; }
-    .wa-status {
-      color: rgba(255,255,255,0.75); font-size: 12px; margin-top: 1px;
-      display: flex; align-items: center; gap: 4px;
+    .topbar-avatar {
+      width: 40px; height: 40px; border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.25);
+      overflow: hidden; flex-shrink: 0; background: rgba(255,255,255,0.1);
+      position: relative;
     }
-    .wa-online-dot {
-      width: 7px; height: 7px; border-radius: 50%;
-      background: #25D366; display: inline-block;
+    .topbar-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .topbar-online {
+      position: absolute; bottom: 1px; right: 1px;
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--online); border: 2px solid var(--navy);
     }
-    .wa-actions { display: flex; gap: 18px; color: white; font-size: 18px; opacity: 0.85; }
+    .topbar-info { flex: 1; min-width: 0; }
+    .topbar-title { font-size: 16px; font-weight: 700; line-height: 1.2; }
+    .topbar-sub { font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 2px; }
+    .topbar-actions { display: flex; gap: 6px; }
+    .topbar-btn {
+      width: 36px; height: 36px; border-radius: 50%;
+      background: rgba(255,255,255,0.1); border: none;
+      color: white; font-size: 17px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .status-dot {
+      width: 9px; height: 9px; border-radius: 50%;
+      background: var(--online); flex-shrink: 0;
+      animation: pulse 2.5s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
-    /* Chat body — WhatsApp wallpaper */
-    .wa-body {
-      height: 360px;
-      overflow-y: auto;
-      padding: 10px 12px;
+    /* ─── Tab bar ────────────────────────────────────────── */
+    .tabbar {
+      flex-shrink: 0;
       display: flex;
-      flex-direction: column;
-      gap: 3px;
-      scroll-behavior: smooth;
-      background-color: #E5DDD5;
-      background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23c5b9ae' fill-opacity='0.18'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+      background: var(--navy);
+      border-top: 1px solid rgba(255,255,255,0.08);
     }
-    .wa-body::-webkit-scrollbar { width: 4px; }
-    .wa-body::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 4px; }
+    .tab {
+      flex: 1; padding: 0 4px 14px; padding-top: 10px;
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      border: none; background: none; color: rgba(255,255,255,0.45);
+      font-size: 9.5px; font-weight: 600; letter-spacing: 0.3px;
+      text-transform: uppercase; cursor: pointer;
+      transition: color 0.2s; border-top: 2px solid transparent;
+      margin-top: -1px;
+    }
+    .tab .icon { font-size: 20px; line-height: 1; }
+    .tab.active { color: var(--teal-light); border-top-color: var(--teal-light); }
 
-    /* Date pill */
-    .wa-date-pill {
+    /* ─── Scrollable content area ────────────────────────── */
+    .scroll-area { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .scroll-area::-webkit-scrollbar { display: none; }
+
+    /* ─── HOME: Conversations list ───────────────────────── */
+    #screen-home { z-index: 1; }
+
+    .home-search-wrap {
+      padding: 12px 16px 8px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 5;
+    }
+    .home-search {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--bg); border-radius: 10px;
+      padding: 9px 12px;
+    }
+    .home-search input {
+      flex: 1; border: none; background: none; outline: none;
+      font-size: 15px; color: var(--text-1);
+    }
+    .home-search input::placeholder { color: var(--text-3); }
+
+    /* Section label */
+    .list-section-label {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.8px;
+      text-transform: uppercase; color: var(--text-3);
+      padding: 16px 16px 8px;
+    }
+
+    /* Conversation row */
+    .convo-row {
+      display: flex; align-items: center; gap: 13px;
+      padding: 12px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      cursor: pointer; transition: background 0.15s;
+      -webkit-user-select: none; user-select: none;
+    }
+    .convo-row:active { background: #F0F4F8; }
+
+    .convo-avi {
+      position: relative; flex-shrink: 0;
+      width: 52px; height: 52px; border-radius: 50%;
+      overflow: hidden;
+    }
+    .convo-avi img { width: 100%; height: 100%; object-fit: cover; }
+    .convo-avi-fallback {
+      width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; border-radius: 50%;
+    }
+    .convo-badge {
+      position: absolute; bottom: 1px; right: 1px;
+      width: 13px; height: 13px; border-radius: 50%;
+      background: var(--online); border: 2.5px solid var(--surface);
+    }
+
+    .convo-body { flex: 1; min-width: 0; }
+    .convo-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 3px; }
+    .convo-name { font-size: 15.5px; font-weight: 700; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .convo-time { font-size: 11.5px; color: var(--text-3); flex-shrink: 0; }
+    .convo-preview { font-size: 13.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .convo-chevron { color: var(--text-3); font-size: 18px; flex-shrink: 0; opacity: 0.5; }
+
+    /* ─── CHAT screen ────────────────────────────────────── */
+    #screen-chat { z-index: 2; background: var(--chat-wall); }
+
+    /* Chat wallpaper */
+    .chat-messages-area {
+      flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      padding: 12px 12px 8px;
+      display: flex; flex-direction: column; gap: 3px;
+      background-color: var(--chat-wall);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Ccircle cx='40' cy='40' r='1.5' fill='%23c8bbae' opacity='0.35'/%3E%3C/svg%3E");
+    }
+    .chat-messages-area::-webkit-scrollbar { display: none; }
+
+    .msg-date-pill {
       align-self: center;
-      background: rgba(225,245,254,0.92);
-      color: #555;
-      font-size: 11px;
-      padding: 4px 10px;
-      border-radius: 8px;
-      margin: 6px 0;
-      box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+      background: rgba(225,245,254,0.88);
+      backdrop-filter: blur(4px);
+      font-size: 11px; color: #666;
+      padding: 4px 12px; border-radius: 10px;
+      margin: 8px 0 6px; box-shadow: 0 1px 2px rgba(0,0,0,.1);
     }
 
     /* Bubbles */
-    .wa-msg {
-      max-width: 82%;
-      padding: 7px 10px 20px;
-      border-radius: 8px;
-      font-size: 14px;
-      line-height: 1.45;
+    .bubble {
+      max-width: 78%;
+      padding: 8px 11px 22px;
+      border-radius: 12px;
+      font-size: 14.5px; line-height: 1.45;
       position: relative;
       word-break: break-word;
-      box-shadow: 0 1px 2px rgba(0,0,0,0.12);
-      margin-bottom: 2px;
+      box-shadow: 0 1px 2px rgba(0,0,0,.13);
+      margin-bottom: 1px;
     }
-    /* Sent — right, green */
-    .wa-msg.sent {
-      background: #DCF8C6;
-      color: #111;
+    .bubble.sent {
+      background: var(--sent-bg); color: var(--sent-text);
       align-self: flex-end;
-      border-bottom-right-radius: 2px;
+      border-bottom-right-radius: 3px;
     }
-    .wa-msg.sent::after {
-      content: '';
-      position: absolute;
-      bottom: 0; right: -7px;
-      width: 0; height: 0;
-      border-left: 7px solid #DCF8C6;
+    .bubble.sent::after {
+      content:''; position:absolute; bottom:0; right:-7px;
+      border-left: 7px solid var(--sent-bg);
       border-top: 7px solid transparent;
     }
-    /* Received — left, white */
-    .wa-msg.received {
-      background: #fff;
-      color: #111;
+    .bubble.recv {
+      background: var(--recv-bg); color: var(--recv-text);
       align-self: flex-start;
-      border-bottom-left-radius: 2px;
+      border-bottom-left-radius: 3px;
     }
-    .wa-msg.received::after {
-      content: '';
-      position: absolute;
-      bottom: 0; left: -7px;
-      width: 0; height: 0;
-      border-right: 7px solid #fff;
+    .bubble.recv::after {
+      content:''; position:absolute; bottom:0; left:-7px;
+      border-right: 7px solid var(--recv-bg);
       border-top: 7px solid transparent;
     }
-    /* Sender name inside received bubble (coloured) */
-    .wa-sender {
+    .bubble-sender {
       font-size: 12px; font-weight: 700;
-      color: #075E54;
       margin-bottom: 3px;
     }
-    /* Timestamp + tick — bottom right of bubble */
-    .wa-meta {
-      position: absolute;
-      bottom: 5px; right: 8px;
-      display: flex; align-items: center; gap: 3px;
-      font-size: 10px; color: #8a9197;
-      white-space: nowrap;
+    .bubble-meta {
+      position:absolute; bottom:5px; right:9px;
+      display:flex; align-items:center; gap:3px;
+      font-size: 11px; color: #8a9197; white-space:nowrap;
     }
-    .wa-tick { color: #4FC3F7; font-size: 12px; }
+    .bubble-ticks { color: #53BDEB; font-size: 13px; }
 
-    /* System / notice pill */
-    .wa-notice {
+    /* System notice */
+    .sys-notice {
       align-self: center;
-      background: rgba(255,243,224,0.95);
-      color: #795548;
-      font-size: 11px;
-      padding: 5px 14px;
-      border-radius: 8px;
-      margin: 4px 0;
-      font-style: italic;
-      box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+      background: rgba(255,255,255,0.82);
+      backdrop-filter: blur(4px);
+      font-size: 11.5px; color: #888;
+      padding: 5px 16px; border-radius: 10px;
+      margin: 4px 0; font-style: italic;
+      box-shadow: 0 1px 2px rgba(0,0,0,.08);
     }
 
     /* Typing indicator */
-    .wa-typing {
-      background: #fff;
+    .typing-bubble {
+      background: var(--recv-bg);
       align-self: flex-start;
-      padding: 10px 14px 10px;
-      border-radius: 8px;
-      border-bottom-left-radius: 2px;
-      box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+      padding: 12px 16px;
+      border-radius: 12px;
+      border-bottom-left-radius: 3px;
+      position: relative;
+      box-shadow: 0 1px 2px rgba(0,0,0,.13);
     }
-    .wa-typing::after {
-      content: '';
-      position: absolute;
-      bottom: 0; left: -7px;
-      width: 0; height: 0;
-      border-right: 7px solid #fff;
+    .typing-bubble::after {
+      content:''; position:absolute; bottom:0; left:-7px;
+      border-right: 7px solid var(--recv-bg);
       border-top: 7px solid transparent;
     }
-    .wa-dots { display: flex; gap: 4px; align-items: center; height: 16px; }
-    .wa-dots span {
-      width: 7px; height: 7px; border-radius: 50%;
-      background: #90A4AE; display: block;
-      animation: wadot 1.2s infinite ease-in-out;
+    .typing-dots { display:flex; gap:5px; align-items:center; }
+    .typing-dots span {
+      width:8px; height:8px; border-radius:50%;
+      background:#90A4AE; display:block;
+      animation: bounce 1.3s ease-in-out infinite;
     }
-    .wa-dots span:nth-child(2) { animation-delay: 0.2s; }
-    .wa-dots span:nth-child(3) { animation-delay: 0.4s; }
-    @keyframes wadot { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-5px)} }
+    .typing-dots span:nth-child(2){animation-delay:.2s}
+    .typing-dots span:nth-child(3){animation-delay:.4s}
+    @keyframes bounce{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-6px)}}
 
-    /* Input bar */
-    .wa-input-bar {
-      background: #F0F0F0;
-      padding: 8px 10px;
-      display: flex; align-items: center; gap: 8px;
-    }
-    .wa-emoji-btn {
-      color: #8a9197; font-size: 22px;
-      background: none; border: none; cursor: pointer; flex-shrink: 0;
-      padding: 0 2px;
-    }
-    .wa-input {
-      flex: 1;
-      background: white;
-      border: none; border-radius: 22px;
-      padding: 9px 14px;
-      font-size: 15px;
-      outline: none;
-      line-height: 1.4;
-      font-family: inherit;
-    }
-    .wa-send-btn {
-      width: 44px; height: 44px; border-radius: 50%;
-      background: #075E54; color: white;
-      border: none; cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
+    /* Chat input bar */
+    .chat-input-bar {
       flex-shrink: 0;
-      transition: background 0.2s;
-      font-size: 18px;
+      display: flex; align-items: flex-end; gap: 8px;
+      padding: 8px 10px 24px;
+      background: #F0F0F0;
     }
-    .wa-send-btn:hover { background: #054d44; }
-    .wa-send-btn:disabled { background: #B0BEC5; cursor: not-allowed; }
-
-    /* ── Activity feed ── */
-    .activity-item {
-      display: flex; gap: 12px; align-items: flex-start;
-      padding: 10px 0;
-      border-bottom: 1px solid var(--border);
-    }
-    .activity-item:last-child { border-bottom: none; }
-    .activity-icon {
-      width: 36px; height: 36px; border-radius: 50%;
+    .chat-emoji-btn {
+      width: 38px; height: 38px; border-radius: 50%;
+      background: none; border: none; font-size: 22px;
+      cursor: pointer; flex-shrink: 0; color: #8a9197;
       display: flex; align-items: center; justify-content: center;
-      font-size: 16px; flex-shrink: 0;
     }
-    .activity-text { flex: 1; }
-    .activity-agent { font-size: 12px; font-weight: 700; color: var(--muted); }
-    .activity-summary { font-size: 13px; color: var(--text); margin-top: 2px; line-height: 1.4; }
-    .activity-time { font-size: 11px; color: var(--muted); margin-top: 3px; }
+    .chat-text-input {
+      flex: 1; background: white; border: none; border-radius: 22px;
+      padding: 9px 14px; font-size: 15px; outline: none;
+      line-height: 1.4; font-family: inherit; resize: none;
+      max-height: 100px; overflow-y: auto;
+    }
+    .chat-send-btn {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: var(--teal); border: none; color: white;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; flex-shrink: 0; transition: background .15s;
+    }
+    .chat-send-btn:disabled { background: #B0BEC5; cursor: not-allowed; }
+    .chat-send-btn svg { width: 20px; height: 20px; }
 
-    /* ── Tickets ── */
-    .ticket-item {
-      display: flex; align-items: center; gap: 10px;
-      padding: 10px 0; border-bottom: 1px solid var(--border);
+    /* Quick replies */
+    .quick-row {
+      flex-shrink: 0;
+      display: flex; gap: 8px; padding: 10px 12px 0;
+      overflow-x: auto; scrollbar-width: none;
+      background: #F0F0F0;
     }
-    .ticket-item:last-child { border-bottom: none; }
-    .ticket-status {
-      width: 20px; height: 20px; border-radius: 50%;
+    .quick-row::-webkit-scrollbar { display: none; }
+    .quick-chip {
+      flex-shrink: 0; white-space: nowrap;
+      background: white; border: 1.5px solid var(--border);
+      border-radius: 20px; padding: 6px 14px;
+      font-size: 13px; color: var(--teal); font-weight: 600;
+      cursor: pointer; transition: all .15s;
+    }
+    .quick-chip:active { background: var(--teal); color: white; border-color: var(--teal); }
+
+    /* ─── ACTIVITY screen ────────────────────────────────── */
+    #screen-activity { z-index: 1; background: var(--bg); }
+
+    .act-stats {
+      display: flex; gap: 10px; padding: 16px;
+    }
+    .act-stat {
+      flex: 1; background: var(--surface); border-radius: 14px;
+      padding: 14px 12px; text-align: center;
+      box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    }
+    .act-stat-num { font-size: 28px; font-weight: 800; color: var(--navy); }
+    .act-stat-lbl { font-size: 11px; color: var(--text-2); margin-top: 3px; }
+
+    .act-list { padding: 0 16px 16px; }
+    .act-item {
+      display: flex; gap: 12px; align-items: flex-start;
+      padding: 13px 0; border-bottom: 1px solid var(--border);
+    }
+    .act-item:last-child { border-bottom: none; }
+    .act-icon-wrap {
+      width: 38px; height: 38px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 17px; flex-shrink: 0;
+      background: var(--bg);
+    }
+    .act-text { flex: 1; }
+    .act-agent { font-size: 11.5px; font-weight: 700; color: var(--teal); text-transform: uppercase; letter-spacing: 0.3px; }
+    .act-summary { font-size: 13.5px; color: var(--text-1); margin-top: 2px; line-height: 1.4; }
+    .act-time { font-size: 11px; color: var(--text-3); margin-top: 3px; }
+
+    /* ─── TICKETS screen ─────────────────────────────────── */
+    #screen-tickets { z-index: 1; background: var(--bg); }
+
+    .ticket-progress-card {
+      margin: 16px; background: var(--surface); border-radius: 16px;
+      padding: 16px; box-shadow: 0 1px 6px rgba(0,0,0,.07);
+    }
+    .ticket-progress-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+    .ticket-progress-title { font-size: 14px; font-weight: 700; color: var(--text-1); }
+    .ticket-progress-pct { font-size: 14px; font-weight: 700; color: var(--teal); }
+    .progress-bar { height: 6px; background: var(--border); border-radius: 6px; overflow: hidden; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, var(--teal), var(--teal-light)); border-radius: 6px; transition: width .5s; }
+
+    .tickets-list { padding: 0 16px 16px; display:flex; flex-direction:column; gap:10px; }
+    .ticket-card {
+      background: var(--surface); border-radius: 14px;
+      padding: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.07);
+      display: flex; align-items: center; gap: 12px;
+    }
+    .ticket-check {
+      width: 24px; height: 24px; border-radius: 50%;
       flex-shrink: 0; display: flex; align-items: center; justify-content: center;
-      font-size: 12px;
+      font-size: 13px;
     }
-    .ticket-status.done { background: #E8F5E9; color: var(--green); }
-    .ticket-status.todo { background: #EEF4FB; color: var(--accent); }
-    .ticket-id { font-size: 11px; font-weight: 700; color: var(--teal); flex-shrink: 0; min-width: 60px; }
-    .ticket-title { font-size: 13px; flex: 1; line-height: 1.3; }
-    .ticket-owner { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+    .ticket-check.done { background: #E8F5E9; color: #2E7D32; }
+    .ticket-check.todo { background: #EEF4FB; color: var(--accent); border: 2px solid var(--border); }
+    .ticket-body { flex: 1; min-width: 0; }
+    .ticket-id { font-size: 11px; font-weight: 700; color: var(--teal); }
+    .ticket-title-text { font-size: 13.5px; color: var(--text-1); margin-top: 2px; line-height: 1.3; }
+    .ticket-owner-tag { font-size: 11px; color: var(--text-3); margin-top: 3px; }
 
-    /* ── Stats row ── */
-    .stats-row { display: flex; gap: 10px; margin-bottom: 16px; }
-    .stat-card {
-      flex: 1; background: var(--card); border-radius: 10px;
-      padding: 12px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    /* ─── PR Queue ───────────────────────────────────────── */
+    .pr-empty {
+      margin: 0 16px; background: #E8F5E9; border-radius: 14px;
+      padding: 16px; text-align: center; color: #2E7D32;
+      font-size: 14px; font-weight: 600;
     }
-    .stat-number { font-size: 28px; font-weight: 800; color: var(--navy); }
-    .stat-label  { font-size: 11px; color: var(--muted); margin-top: 2px; }
 
-    /* ── Misc ── */
-    .empty { text-align: center; color: var(--muted); font-size: 14px; padding: 32px 0; }
-    .badge {
-      display: inline-block; padding: 2px 8px;
-      border-radius: 12px; font-size: 11px; font-weight: 700;
+    /* ─── Section headers ────────────────────────────────── */
+    .section-hd {
+      font-size: 12px; font-weight: 700; color: var(--text-3);
+      text-transform: uppercase; letter-spacing: 0.7px;
+      padding: 16px 16px 8px;
     }
-    .badge-blue   { background: #E3F2FD; color: var(--accent); }
-    .badge-green  { background: #E8F5E9; color: var(--green); }
-    .badge-orange { background: #FFF3E0; color: var(--gold); }
-    .loading { text-align: center; padding: 20px; color: var(--muted); font-size: 13px; }
 
-    /* ── Bottom nav ── */
-    .bottom-nav {
-      position: fixed; bottom: 0; left: 0; right: 0;
-      background: var(--navy);
-      display: flex;
-      box-shadow: 0 -2px 12px rgba(0,0,0,0.2);
-      z-index: 100;
-    }
-    .bottom-btn {
-      flex: 1; padding: 10px 0 12px;
-      border: none; background: none;
-      color: rgba(255,255,255,0.5);
-      cursor: pointer;
-      display: flex; flex-direction: column; align-items: center; gap: 3px;
-      font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
-      transition: color 0.2s;
-    }
-    .bottom-btn .icon { font-size: 20px; }
-    .bottom-btn.active { color: #00C9A7; }
+    /* ─── Loading ────────────────────────────────────────── */
+    .loading-row { padding: 20px; text-align: center; color: var(--text-3); font-size: 14px; }
   </style>
 </head>
 <body>
 
-<!-- Header -->
-<div class="header">
-  <div class="header-top">
-    <div>
-      <h1>RSE Intelligence</h1>
-      <div class="header-sub" id="headerSub">Agent Hub — Loading...</div>
+<!-- ════════════════════════════════════════════════════════
+     SCREEN 1 — HOME (Conversations List)
+═══════════════════════════════════════════════════════════ -->
+<div class="screen" id="screen-home">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <div class="topbar-info">
+      <div class="topbar-title">RSE Intelligence</div>
+      <div class="topbar-sub" id="homeStatus">Checking agents…</div>
     </div>
-    <div class="status-dot" id="statusDot" title="Orchestrator online"></div>
+    <div class="status-dot" id="statusDot"></div>
   </div>
-  <div class="nav" id="nav" style="margin-top:10px; border-radius:8px; overflow:hidden;">
-    <button class="nav-btn active" onclick="showSection('chat')">💬 Chat</button>
-    <button class="nav-btn" onclick="showSection('activity')">📊 Activity</button>
-    <button class="nav-btn" onclick="showSection('tickets')">🎫 Tickets</button>
-    <button class="nav-btn" onclick="showSection('agents')">🤖 Agents</button>
+
+  <!-- Tab bar (lives here so it stays visible on home) -->
+  <div class="tabbar" id="homeTabbar">
+    <button class="tab active" onclick="switchTab('chat')" id="tab-chat">
+      <span class="icon">💬</span>Chat
+    </button>
+    <button class="tab" onclick="switchTab('activity')" id="tab-activity">
+      <span class="icon">📊</span>Activity
+    </button>
+    <button class="tab" onclick="switchTab('tickets')" id="tab-tickets">
+      <span class="icon">🎫</span>Tickets
+    </button>
   </div>
-</div>
 
-<!-- ══ CHAT SECTION ══════════════════════════════════════════════════════════ -->
-<div class="section active" id="section-chat">
-
-  <!-- Agent picker -->
-  <div class="agent-grid" style="margin-top:4px;" id="agentGrid"></div>
-
-  <!-- WhatsApp-style chat window -->
-  <div class="wa-window">
-
-    <!-- Header -->
-    <div class="wa-header">
-      <span class="wa-back">‹</span>
-      <div class="wa-avatar" id="waAvatar">
-        <img src="https://api.dicebear.com/8.x/personas/svg?seed=AriaChen&backgroundColor=075E54&backgroundType=solid"
-             alt="Aria Chen" onerror="this.style.display='none'">
-      </div>
-      <div class="wa-info">
-        <div class="wa-name" id="waName">Aria Chen</div>
-        <div class="wa-status">
-          <span class="wa-online-dot"></span>
-          <span id="waStatus">online</span>
-        </div>
-      </div>
-      <div class="wa-actions">
-        <span title="Voice call">📞</span>
-        <span title="More options">⋮</span>
-      </div>
-    </div>
-
-    <!-- Messages -->
-    <div class="wa-body" id="chatBox">
-      <div class="wa-date-pill">Today</div>
-      <div class="wa-msg received" style="position:relative;">
-        <div class="wa-sender">Aria Chen</div>
-        Hello Richard 👋 I'm Aria, your CTO. Tap any team member above to switch conversations. What do you need?
-        <div class="wa-meta">00:00 <span class="wa-tick">✓✓</span></div>
-      </div>
-    </div>
-
-    <!-- Input bar -->
-    <div class="wa-input-bar">
-      <button class="wa-emoji-btn">😊</button>
-      <input class="wa-input" id="chatInput" placeholder="Message" autocomplete="off"
-             onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage()}">
-      <button class="wa-send-btn" id="sendBtn" onclick="sendMessage()">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+  <!-- ── Tab: Chat ─────────────────────────────────────── -->
+  <div id="tab-content-chat" class="scroll-area">
+    <!-- Search -->
+    <div class="home-search-wrap">
+      <div class="home-search">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9BA5B4" stroke-width="2.5">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
         </svg>
-      </button>
+        <input id="searchInput" placeholder="Search agents…" oninput="filterConvos(this.value)">
+      </div>
     </div>
 
+    <div class="section-hd">Your Team</div>
+    <div id="convoList"></div>
   </div>
 
-  <!-- Quick commands -->
-  <div class="card">
-    <div class="card-title">Quick Commands</div>
-    <div style="display:flex; flex-wrap:wrap; gap:8px;">
-      <button class="badge badge-blue" style="cursor:pointer;padding:6px 12px;" onclick="quickMsg('What is the status of Sprint 1?')">Sprint status</button>
-      <button class="badge badge-blue" style="cursor:pointer;padding:6px 12px;" onclick="quickMsg('Show me the PR queue')">PR queue</button>
-      <button class="badge badge-green" style="cursor:pointer;padding:6px 12px;" onclick="quickMsg('What did you accomplish today?')">Today\'s work</button>
-      <button class="badge badge-orange" style="cursor:pointer;padding:6px 12px;" onclick="quickMsg('Are there any blockers I should know about?')">Blockers</button>
-      <button class="badge badge-blue" style="cursor:pointer;padding:6px 12px;" onclick="quickMsg('What marketing platform should we launch on first and why?')">Ad strategy</button>
-      <button class="badge badge-green" style="cursor:pointer;padding:6px 12px;" onclick="quickMsg('What is the deployment status?')">Deploy status</button>
+  <!-- ── Tab: Activity ─────────────────────────────────── -->
+  <div id="tab-content-activity" class="scroll-area" style="display:none;">
+    <div class="act-stats">
+      <div class="act-stat"><div class="act-stat-num" id="statMsgs">—</div><div class="act-stat-lbl">Messages</div></div>
+      <div class="act-stat"><div class="act-stat-num">6</div><div class="act-stat-lbl">Agents</div></div>
+      <div class="act-stat"><div class="act-stat-num" id="statActions">—</div><div class="act-stat-lbl">Actions</div></div>
     </div>
+    <div class="section-hd">Live Feed · Last 24h</div>
+    <div class="act-list" id="activityFeed"><div class="loading-row">Loading…</div></div>
+  </div>
+
+  <!-- ── Tab: Tickets ──────────────────────────────────── -->
+  <div id="tab-content-tickets" class="scroll-area" style="display:none;">
+    <div class="ticket-progress-card">
+      <div class="ticket-progress-header">
+        <div class="ticket-progress-title">Sprint 1 — Financial Doc Analyzer</div>
+        <div class="ticket-progress-pct" id="progressPct">0%</div>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+    </div>
+
+    <div class="section-hd">PR Queue — Awaiting Your Approval</div>
+    <div id="prQueueSection"><div class="loading-row">Loading…</div></div>
+
+    <div class="section-hd">All Tickets</div>
+    <div class="tickets-list" id="ticketsList"><div class="loading-row">Loading…</div></div>
   </div>
 
 </div>
 
-<!-- ══ ACTIVITY SECTION ══════════════════════════════════════════════════════ -->
-<div class="section" id="section-activity">
+<!-- ════════════════════════════════════════════════════════
+     SCREEN 2 — CHAT (Individual conversation)
+═══════════════════════════════════════════════════════════ -->
+<div class="screen offscreen" id="screen-chat">
 
-  <div class="stats-row" id="statsRow">
-    <div class="stat-card">
-      <div class="stat-number" id="statMessages">—</div>
-      <div class="stat-label">Messages Today</div>
+  <!-- Chat top bar -->
+  <div class="topbar">
+    <button class="topbar-back" onclick="closeChat()">‹</button>
+    <div class="topbar-avatar" id="chatAvatar">
+      <img id="chatAvatarImg" src="" alt="">
+      <div class="topbar-online"></div>
     </div>
-    <div class="stat-card">
-      <div class="stat-number" id="statAgents">6</div>
-      <div class="stat-label">Active Agents</div>
+    <div class="topbar-info">
+      <div class="topbar-title" id="chatName">—</div>
+      <div class="topbar-sub" id="chatSub">online</div>
     </div>
-    <div class="stat-card">
-      <div class="stat-number" id="statActions">—</div>
-      <div class="stat-label">Actions Today</div>
+    <div class="topbar-actions">
+      <button class="topbar-btn">📞</button>
+      <button class="topbar-btn">⋮</button>
     </div>
   </div>
 
-  <div class="card">
-    <div class="card-title">Live Activity Feed <span id="activityBadge" class="badge badge-blue" style="float:right;">Last 24h</span></div>
-    <div id="activityFeed"><div class="loading">Loading activity...</div></div>
-  </div>
+  <!-- Messages -->
+  <div class="chat-messages-area" id="chatMessages"></div>
 
-</div>
+  <!-- Quick reply chips -->
+  <div class="quick-row" id="quickChips"></div>
 
-<!-- ══ TICKETS SECTION ════════════════════════════════════════════════════════ -->
-<div class="section" id="section-tickets">
-
-  <div class="card">
-    <div class="card-title">Sprint 1 — Financial Doc Analyzer</div>
-    <div id="ticketList"><div class="loading">Loading tickets...</div></div>
-  </div>
-
-  <div class="card">
-    <div class="card-title">PR Queue — Awaiting Your Approval</div>
-    <div id="prQueue"><div class="loading">Loading...</div></div>
-  </div>
-
-</div>
-
-<!-- ══ AGENTS SECTION ═════════════════════════════════════════════════════════ -->
-<div class="section" id="section-agents">
-
-  <div class="card">
-    <div class="card-title">The Team</div>
-    <div id="agentRoster"></div>
-  </div>
-
-  <div class="card">
-    <div class="card-title">Non-Negotiables</div>
-    <div style="font-size:13px; line-height:1.8; color:var(--text);">
-      🔒 No PR merges without <strong>your</strong> GitHub approval<br>
-      💰 No marketing spend without your sign-off<br>
-      🚦 Staging before every production deploy<br>
-      🔄 Rollback procedure always ready<br>
-      ⚖️ Advisor Copilot = draft assistant, not autonomous advice<br>
-      🔐 No user data used to train external models
-    </div>
+  <!-- Input -->
+  <div class="chat-input-bar">
+    <button class="chat-emoji-btn">😊</button>
+    <textarea class="chat-text-input" id="chatInput" placeholder="Message…" rows="1"
+      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage()}"
+      oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,100)+'px'"></textarea>
+    <button class="chat-send-btn" id="sendBtn" onclick="sendMessage()">
+      <svg viewBox="0 0 24 24" fill="white"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+    </button>
   </div>
 
 </div>
 
 <script>
-  // ── State ──────────────────────────────────────────────────────────────────
-  const API = window.location.origin;
-  let currentAgent = 'coordinator';
-  let sessionId = localStorage.getItem('sessionId') || '';
-  let isLoading = false;
+// ── Agent data ─────────────────────────────────────────────
+const AGENTS = [
+  { id:'coordinator',         name:'Aria Chen',   title:'Chief Technology Officer',         color:'#0D2B4E', seed:'AriaChen',    emoji:'🧠', quicks:['Sprint status?','Any blockers?','Plan for today?','Release ready?'] },
+  { id:'project-manager',     name:'Marcus Webb', title:'Engineering Project Manager',      color:'#BF360C', seed:'MarcusWebb',  emoji:'🎫', quicks:['Open tickets?','PRs pending?','What\'s overdue?','Bug updates?'] },
+  { id:'backend-ai-dev',      name:'Kwame Asante',title:'Senior Backend & AI Engineer',     color:'#00695C', seed:'KwameAsante', emoji:'🔧', quicks:['FDA-003 status?','API endpoints ready?','NIM integration OK?','Test coverage?'] },
+  { id:'mobile-frontend-dev', name:'Sofia Reyes', title:'Senior Mobile & Frontend Engineer',color:'#1565C0', seed:'SofiaReyes',  emoji:'📱', quicks:['Upload screen done?','iOS tested?','Android tested?','Design feedback?'] },
+  { id:'sales-marketing',     name:'Priya Nair',  title:'Head of Growth & Marketing',       color:'#4A148C', seed:'PriyaNair',   emoji:'📣', quicks:['Best ad platform?','Revenue forecast?','Launch plan?','Competitor news?'] },
+  { id:'deployment',          name:'Luca Romano', title:'DevOps & Infrastructure Engineer', color:'#1B5E20', seed:'LucaRomano',  emoji:'🚀', quicks:['Deploy status?','DB migrations?','Staging clean?','Infra costs?'] },
+];
 
-  const AGENTS = [
-    { id:'coordinator',         cssClass:'coordinator', humanName:'Aria Chen',   role:'CTO Layer',               title:'Chief Technology Officer',         avatar:'https://api.dicebear.com/8.x/personas/svg?seed=AriaChen&backgroundColor=0D2B4E&backgroundType=solid' },
-    { id:'project-manager',     cssClass:'pm',          humanName:'Marcus Webb', role:'Tickets & PRs',           title:'Engineering Project Manager',      avatar:'https://api.dicebear.com/8.x/personas/svg?seed=MarcusWebb&backgroundColor=E65100&backgroundType=solid' },
-    { id:'backend-ai-dev',      cssClass:'backend',     humanName:'Kwame Asante',role:'Python · NIM',            title:'Senior Backend & AI Engineer',     avatar:'https://api.dicebear.com/8.x/personas/svg?seed=KwameAsante&backgroundColor=00796B&backgroundType=solid' },
-    { id:'mobile-frontend-dev', cssClass:'mobile',      humanName:'Sofia Reyes', role:'React Native',            title:'Senior Mobile & Frontend Engineer',avatar:'https://api.dicebear.com/8.x/personas/svg?seed=SofiaReyes&backgroundColor=1565C0&backgroundType=solid' },
-    { id:'sales-marketing',     cssClass:'marketing',   humanName:'Priya Nair',  role:'Growth & Marketing',      title:'Head of Growth & Marketing',       avatar:'https://api.dicebear.com/8.x/personas/svg?seed=PriyaNair&backgroundColor=4A148C&backgroundType=solid' },
-    { id:'deployment',          cssClass:'deployment',  humanName:'Luca Romano', role:'DevOps & Infra',          title:'DevOps & Infrastructure Engineer', avatar:'https://api.dicebear.com/8.x/personas/svg?seed=LucaRomano&backgroundColor=1B5E20&backgroundType=solid' },
-  ];
+function avatar(seed, color) {
+  const c = encodeURIComponent(color.replace('#',''));
+  return `https://api.dicebear.com/8.x/personas/svg?seed=${seed}&backgroundColor=${c}&backgroundType=solid`;
+}
 
-  // Legacy lookup used by activity feed and other spots
-  const AGENT_META = Object.fromEntries(AGENTS.map(a => [a.id, { name: a.humanName, role: a.title, avatar: a.avatar }]));
+// ── State ──────────────────────────────────────────────────
+const API = window.location.origin;
+let currentAgent = null;
+let sessionId = '';
+let isSending = false;
+let histories = {};   // {agentId: [{role,content}]}
+let lastMessages = {}; // {agentId: string}
 
-  // ── Build agent grid with avatars ─────────────────────────────────────────
-  function buildAgentGrid() {
-    const grid = document.getElementById('agentGrid');
-    grid.innerHTML = AGENTS.map(a => `
-      <div class="agent-card ${a.cssClass}${a.id === 'coordinator' ? ' selected' : ''}"
-           id="card-${a.id}"
-           onclick="selectAgentObj(${JSON.stringify(a).replace(/"/g,'&quot;')})">
-        <div class="agent-avatar">
-          <img src="${a.avatar}" alt="${a.humanName}" loading="lazy"
-               onerror="this.style.display='none';this.parentNode.innerHTML='<div style=&quot;width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:20px&quot;>${a.cssClass === 'coordinator' ? '🧠' : a.cssClass === 'backend' ? '🔧' : a.cssClass === 'mobile' ? '📱' : a.cssClass === 'pm' ? '🎫' : a.cssClass === 'marketing' ? '📣' : '🚀'}</div>'">
+// ── Build conversations list ───────────────────────────────
+function buildConvoList(filter='') {
+  const list = document.getElementById('convoList');
+  const filtered = AGENTS.filter(a =>
+    a.name.toLowerCase().includes(filter.toLowerCase()) ||
+    a.title.toLowerCase().includes(filter.toLowerCase())
+  );
+  list.innerHTML = filtered.map(a => `
+    <div class="convo-row" onclick="openChat('${a.id}')">
+      <div class="convo-avi">
+        <img src="${avatar(a.seed, a.color)}" alt="${a.name}"
+             onerror="this.style.display='none';this.parentNode.querySelector('.convo-avi-fallback').style.display='flex'">
+        <div class="convo-avi-fallback" style="display:none;background:${a.color};">${a.emoji}</div>
+        <div class="convo-badge"></div>
+      </div>
+      <div class="convo-body">
+        <div class="convo-top">
+          <span class="convo-name">${a.name}</span>
+          <span class="convo-time">${lastMessages[a.id] ? 'now' : 'online'}</span>
         </div>
-        <div class="agent-info">
-          <div class="agent-name">${a.humanName}</div>
-          <div class="agent-role">${a.title.split(' ').slice(0,3).join(' ')}</div>
-        </div>
-      </div>`).join('');
-  }
+        <div class="convo-preview">${lastMessages[a.id] || a.title}</div>
+      </div>
+      <div class="convo-chevron">›</div>
+    </div>`).join('');
+}
 
-  function selectAgentObj(a) {
-    currentAgent = a.id;
-    sessionId = '';
-    localStorage.removeItem('sessionId');
+function filterConvos(val) { buildConvoList(val); }
 
-    document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('selected'));
-    document.getElementById('card-' + a.id).classList.add('selected');
+// ── Open chat ──────────────────────────────────────────────
+function openChat(agentId) {
+  const a = AGENTS.find(x => x.id === agentId);
+  if (!a) return;
+  currentAgent = a;
+  sessionId = localStorage.getItem('session_' + agentId) || '';
 
-    // Update WhatsApp header
-    document.getElementById('waName').textContent = a.humanName;
-    document.getElementById('waStatus').textContent = 'online';
-    document.getElementById('waAvatar').innerHTML =
-      `<img src="${a.avatar.replace('0D2B4E','075E54').replace('E65100','075E54').replace('4A148C','075E54').replace('1B5E20','075E54').replace('1565C0','075E54').replace('00796B','075E54')}" alt="${a.humanName}" onerror="this.style.display='none'">`;
+  // Update chat header
+  document.getElementById('chatName').textContent = a.name;
+  document.getElementById('chatSub').textContent = a.title;
+  document.getElementById('chatAvatarImg').src = avatar(a.seed, a.color);
+  document.getElementById('chatAvatarImg').alt = a.name;
 
-    const box = document.getElementById('chatBox');
-    const t = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  // Quick chips
+  document.getElementById('quickChips').innerHTML = a.quicks.map(q =>
+    `<div class="quick-chip" onclick="quickSend('${q.replace(/'/g,"\\'")}')"> ${q}</div>`
+  ).join('');
+
+  // Restore or init messages
+  const box = document.getElementById('chatMessages');
+  if (!histories[agentId]) {
+    histories[agentId] = [];
+    const t = now();
     box.innerHTML = `
-      <div class="wa-date-pill">Today</div>
-      <div class="wa-notice">You switched to ${a.humanName}</div>
-      <div class="wa-msg received" style="position:relative;">
-        <div class="wa-sender">${a.humanName}</div>
-        Hi Richard, it's ${a.humanName}. How can I help you today?
-        <div class="wa-meta">${t} <span class="wa-tick">✓✓</span></div>
+      <div class="msg-date-pill">Today</div>
+      <div class="bubble recv" style="position:relative;">
+        <div class="bubble-sender" style="color:${a.color};">${a.name}</div>
+        Hi Richard 👋 I'm ${a.name}. How can I help you today?
+        <div class="bubble-meta">${t} <span class="bubble-ticks">✓✓</span></div>
       </div>`;
-    box.scrollTop = box.scrollHeight;
+  } else {
+    // Rebuild from history (simplified — just show last exchange)
+    scrollToBottom();
   }
 
-  // ── Navigation ─────────────────────────────────────────────────────────────
-  function showSection(name) {
-    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-    document.getElementById('section-' + name).classList.add('active');
-    event.target.classList.add('active');
+  // Slide in
+  document.getElementById('screen-home').classList.add('behind');
+  document.getElementById('screen-chat').classList.remove('offscreen');
+  setTimeout(() => { document.getElementById('chatInput').focus(); scrollToBottom(); }, 350);
+}
 
-    if (name === 'activity') loadActivity();
-    if (name === 'tickets')  { loadTickets(); loadPRQueue(); }
+function closeChat() {
+  document.getElementById('screen-home').classList.remove('behind');
+  document.getElementById('screen-chat').classList.add('offscreen');
+  currentAgent = null;
+  setTimeout(buildConvoList, 100);
+}
+
+// ── Send message ───────────────────────────────────────────
+async function sendMessage() {
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if (!text || isSending || !currentAgent) return;
+
+  isSending = true;
+  input.value = ''; input.style.height = 'auto';
+  document.getElementById('sendBtn').disabled = true;
+
+  appendBubble('sent', null, text);
+  const typingEl = appendTyping();
+
+  try {
+    const resp = await fetch(`${API}/api/chat`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ message: text, agent: currentAgent.id, session_id: sessionId }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    sessionId = data.session_id;
+    localStorage.setItem('session_' + currentAgent.id, sessionId);
+    typingEl.remove();
+    appendBubble('recv', currentAgent, data.response);
+    lastMessages[currentAgent.id] = data.response.slice(0, 60) + (data.response.length > 60 ? '…' : '');
+  } catch(e) {
+    typingEl.remove();
+    appendBubble('recv', currentAgent, '⚠️ Could not reach the orchestrator. Check your connection and try again.');
   }
 
-  // ── Agent selection ────────────────────────────────────────────────────────
-  function selectAgent(agentId, emoji, name, role) {
-    currentAgent = agentId;
-    sessionId = '';  // New session per agent switch
-    localStorage.removeItem('sessionId');
+  isSending = false;
+  document.getElementById('sendBtn').disabled = false;
+  input.focus();
+}
 
-    document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('selected'));
-    document.getElementById('card-' + agentId).classList.add('selected');
+function quickSend(text) {
+  document.getElementById('chatInput').value = text;
+  sendMessage();
+}
 
-    document.getElementById('chatEmoji').textContent = emoji;
-    document.getElementById('chatAgentName').textContent = name;
-    document.getElementById('chatAgentRole').textContent = role + ' — Ask me anything';
+// ── Bubble helpers ─────────────────────────────────────────
+function appendBubble(type, agent, text) {
+  const box = document.getElementById('chatMessages');
+  const t = now();
+  const div = document.createElement('div');
 
-    const box = document.getElementById('chatBox');
-    box.innerHTML = `<div class="msg system">Switched to ${name}</div>`;
-
-    const meta = AGENT_META[agentId];
-    addMessage('assistant', `Hi Richard. I'm your ${meta.name}. How can I help you today?`);
-  }
-
-  // ── Chat ───────────────────────────────────────────────────────────────────
-  function addMessage(role, text, time) {
-    const box = document.getElementById('chatBox');
-    const div = document.createElement('div');
-    const t = time || new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-
-    if (role === 'user') {
-      div.className = 'wa-msg sent';
-      div.style.position = 'relative';
-      div.innerHTML = `${escapeHtml(text)}<div class="wa-meta">${t} <span class="wa-tick">✓✓</span></div>`;
-    } else if (role === 'assistant') {
-      const agentInfo = AGENTS.find(a => a.id === currentAgent) || AGENTS[0];
-      div.className = 'wa-msg received';
-      div.style.position = 'relative';
-      div.innerHTML = `<div class="wa-sender">${agentInfo.humanName}</div>${escapeHtml(text)}<div class="wa-meta">${t} <span class="wa-tick">✓✓</span></div>`;
-    } else {
-      div.className = 'wa-notice';
-      div.textContent = text;
-    }
-
-    box.appendChild(div);
-    box.scrollTop = box.scrollHeight;
-  }
-
-  function addTyping() {
-    const box = document.getElementById('chatBox');
-    const div = document.createElement('div');
-    div.className = 'wa-msg wa-typing';
-    div.id = 'typing-indicator';
+  if (type === 'sent') {
+    div.className = 'bubble sent';
     div.style.position = 'relative';
-    div.innerHTML = `<div class="wa-dots"><span></span><span></span><span></span></div>`;
-    box.appendChild(div);
-    box.scrollTop = box.scrollHeight;
-    return div;
+    div.innerHTML = `${esc(text)}<div class="bubble-meta">${t} <span class="bubble-ticks">✓✓</span></div>`;
+  } else if (type === 'recv') {
+    div.className = 'bubble recv';
+    div.style.position = 'relative';
+    div.innerHTML = `<div class="bubble-sender" style="color:${agent.color};">${agent.name}</div>${esc(text)}<div class="bubble-meta">${t} <span class="bubble-ticks">✓✓</span></div>`;
+  } else {
+    div.className = 'sys-notice';
+    div.textContent = text;
   }
+  box.appendChild(div);
+  scrollToBottom();
+  return div;
+}
 
-  async function sendMessage() {
-    const input = document.getElementById('chatInput');
-    const text = input.value.trim();
-    if (!text || isLoading) return;
+function appendTyping() {
+  const box = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'typing-bubble';
+  div.style.position = 'relative';
+  div.innerHTML = `<div class="typing-dots"><span></span><span></span><span></span></div>`;
+  box.appendChild(div);
+  scrollToBottom();
+  return div;
+}
 
-    isLoading = true;
-    input.value = '';
-    const sendBtn = document.getElementById('sendBtn');
-    sendBtn.disabled = true;
+function scrollToBottom() {
+  const box = document.getElementById('chatMessages');
+  requestAnimationFrame(() => { box.scrollTop = box.scrollHeight; });
+}
 
-    addMessage('user', text);
-    const typing = addTyping();
+// ── Tab switching ──────────────────────────────────────────
+function switchTab(name) {
+  ['chat','activity','tickets'].forEach(t => {
+    document.getElementById('tab-content-' + t).style.display = t === name ? '' : 'none';
+    document.getElementById('tab-' + t).classList.toggle('active', t === name);
+  });
+  if (name === 'activity') loadActivity();
+  if (name === 'tickets')  loadTickets();
+}
 
-    try {
-      const resp = await fetch(`${API}/api/chat`, {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ message: text, agent: currentAgent, session_id: sessionId }),
-      });
-      const data = await resp.json();
-      sessionId = data.session_id;
-      localStorage.setItem('sessionId', sessionId);
-      typing.remove();
-      addMessage('assistant', data.response);
-    } catch (err) {
-      typing.remove();
-      addMessage('system', '⚠️ Could not reach the orchestrator. Check your connection.');
+// ── Activity ───────────────────────────────────────────────
+const ACT_ICONS = {
+  message:'💬', ticket_created:'🎫', pr_reviewed:'🔍',
+  deploy:'🚀', digest_sent:'📨', blocker_alert:'⚠️', blocker_check:'✅',
+};
+const ACT_BG = {
+  message:'#EEF4FB', ticket_created:'#FFF3E0', pr_reviewed:'#E3F2FD',
+  deploy:'#E8F5E9', digest_sent:'#F3E5F5', blocker_alert:'#FFEBEE', blocker_check:'#E8F5E9',
+};
+
+async function loadActivity() {
+  try {
+    const [ar, sr] = await Promise.all([fetch(`${API}/api/activity`), fetch(`${API}/api/summary`)]);
+    const act = await ar.json(); const sum = await sr.json();
+    document.getElementById('statMsgs').textContent = sum.total_messages ?? 0;
+    const total = (sum.agent_stats ?? []).reduce((a,s) => a+s.action_count, 0);
+    document.getElementById('statActions').textContent = total;
+
+    const feed = document.getElementById('activityFeed');
+    if (!act.events?.length) {
+      feed.innerHTML = '<div class="loading-row">No activity yet — start chatting with an agent.</div>'; return;
     }
-
-    isLoading = false;
-    sendBtn.disabled = false;
-    input.focus();
-  }
-
-  function quickMsg(text) {
-    document.getElementById('chatInput').value = text;
-    document.querySelectorAll('.nav-btn')[0].click();
-    sendMessage();
-  }
-
-  // ── Activity feed ──────────────────────────────────────────────────────────
-  const ACTION_ICONS = {
-    message:        { icon:'💬', color:'#EEF4FB' },
-    ticket_created: { icon:'🎫', color:'#FFF3E0' },
-    pr_reviewed:    { icon:'🔍', color:'#E3F2FD' },
-    deploy:         { icon:'🚀', color:'#E8F5E9' },
-    digest_sent:    { icon:'📨', color:'#F3E5F5' },
-    blocker_alert:  { icon:'⚠️', color:'#FFEBEE' },
-    blocker_check:  { icon:'✅', color:'#E8F5E9' },
-  };
-
-  async function loadActivity() {
-    try {
-      const [actResp, sumResp] = await Promise.all([
-        fetch(`${API}/api/activity`),
-        fetch(`${API}/api/summary`),
-      ]);
-      const act = await actResp.json();
-      const sum = await sumResp.json();
-
-      // Stats
-      document.getElementById('statMessages').textContent = sum.total_messages || 0;
-      const totalActions = (sum.agent_stats || []).reduce((a,s) => a + s.action_count, 0);
-      document.getElementById('statActions').textContent = totalActions;
-
-      // Feed
-      const feed = document.getElementById('activityFeed');
-      if (!act.events || act.events.length === 0) {
-        feed.innerHTML = '<div class="empty">No activity yet. Start by chatting with an agent.</div>';
-        return;
-      }
-
-      feed.innerHTML = act.events.map(e => {
-        const meta = ACTION_ICONS[e.action_type] || { icon:'🤖', color:'#EEF4FB' };
-        const agentLabel = e.agent_name.replace(/-/g,' ').replace(/\b\w/g, c=>c.toUpperCase());
-        const timeAgo = formatTimeAgo(new Date(e.created_at));
-        return `
-          <div class="activity-item">
-            <div class="activity-icon" style="background:${meta.color};">${meta.icon}</div>
-            <div class="activity-text">
-              <div class="activity-agent">${agentLabel}</div>
-              <div class="activity-summary">${escapeHtml(e.summary)}</div>
-              <div class="activity-time">${timeAgo}</div>
-            </div>
-          </div>`;
-      }).join('');
-    } catch {
-      document.getElementById('activityFeed').innerHTML =
-        '<div class="empty">⚠️ Cannot load activity. Is the orchestrator running?</div>';
-    }
-  }
-
-  // ── Tickets ────────────────────────────────────────────────────────────────
-  async function loadTickets() {
-    try {
-      const resp = await fetch(`${API}/api/tickets`);
-      const data = await resp.json();
-      const list = document.getElementById('ticketList');
-
-      if (!data.tickets || data.tickets.length === 0) {
-        list.innerHTML = '<div class="empty">No tickets found.</div>';
-        return;
-      }
-
-      const done = data.tickets.filter(t => t.done).length;
-      const total = data.tickets.length;
-
-      list.innerHTML = `
-        <div style="margin-bottom:12px;">
-          <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">${done}/${total} completed</div>
-          <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden;">
-            <div style="background:var(--teal);height:100%;width:${Math.round(done/total*100)}%;transition:width 0.5s;"></div>
-          </div>
-        </div>
-        ${data.tickets.map(t => `
-          <div class="ticket-item">
-            <div class="ticket-status ${t.done ? 'done' : 'todo'}">${t.done ? '✓' : '○'}</div>
-            <div class="ticket-id">${t.id}</div>
-            <div class="ticket-title">${escapeHtml(t.title)}</div>
-            <div class="ticket-owner" style="font-size:10px;">${t.owner || ''}</div>
-          </div>`).join('')}`;
-    } catch {
-      document.getElementById('ticketList').innerHTML =
-        '<div class="empty">⚠️ Cannot load tickets.</div>';
-    }
-  }
-
-  async function loadPRQueue() {
-    try {
-      const resp = await fetch(`${API}/api/pr-queue`);
-      const data = await resp.json();
-      const el = document.getElementById('prQueue');
-
-      if (!data.prs || data.prs.length === 0) {
-        el.innerHTML = '<div class="empty" style="padding:16px 0;">✅ No PRs awaiting your review.</div>';
-      } else {
-        el.innerHTML = data.prs.map(pr => `
-          <div class="activity-item">
-            <div class="activity-icon" style="background:#EEF4FB;">🔍</div>
-            <div class="activity-text">
-              <div class="activity-agent">PR #${pr.number}</div>
-              <div class="activity-summary">${escapeHtml(pr.title)}</div>
-              <div class="activity-time">Risk: ${pr.risk} — ${pr.opened}</div>
-            </div>
-          </div>`).join('');
-      }
-    } catch {
-      document.getElementById('prQueue').innerHTML =
-        '<div class="empty">⚠️ Cannot load PR queue.</div>';
-    }
-  }
-
-  // ── Health check ───────────────────────────────────────────────────────────
-  async function checkHealth() {
-    try {
-      const resp = await fetch(`${API}/health`, { signal: AbortSignal.timeout(5000) });
-      const dot = document.getElementById('statusDot');
-      if (resp.ok) {
-        dot.style.background = '#4CAF50';
-        document.getElementById('headerSub').textContent = 'All agents online · ' + new Date().toLocaleTimeString();
-      } else {
-        dot.style.background = '#FF5722';
-        document.getElementById('headerSub').textContent = 'Orchestrator error';
-      }
-    } catch {
-      document.getElementById('statusDot').style.background = '#9E9E9E';
-      document.getElementById('headerSub').textContent = 'Orchestrator offline';
-    }
-  }
-
-  // ── Utilities ──────────────────────────────────────────────────────────────
-  function formatTimeAgo(date) {
-    const s = Math.floor((Date.now() - date) / 1000);
-    if (s < 60)   return 'just now';
-    if (s < 3600) return Math.floor(s/60) + 'm ago';
-    if (s < 86400)return Math.floor(s/3600) + 'h ago';
-    return Math.floor(s/86400) + 'd ago';
-  }
-
-  function escapeHtml(str) {
-    return String(str)
-      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
-  // ── Build agents roster ────────────────────────────────────────────────────
-  function buildAgentRoster() {
-    const ROSTER_DETAILS = [
-      { id:'coordinator',         status:'✅ Active', summary:'CTO Layer — Architecture decisions, sprint planning, deployment sign-off.' },
-      { id:'backend-ai-dev',      status:'✅ Active — Sprint 1', summary:'Python · FastAPI · PostgreSQL · NVIDIA NIM · OCR pipeline.' },
-      { id:'mobile-frontend-dev', status:'✅ Active — Sprint 1', summary:'React Native · React Web · iOS · Android · UI/UX.' },
-      { id:'project-manager',     status:'✅ Active', summary:'GitHub tickets · PR reviews · Bug triage · Deadline tracking.' },
-      { id:'sales-marketing',     status:'🕐 Activates at Product 1 Beta', summary:'App store analytics · Ad platforms · Revenue modelling.' },
-      { id:'deployment',          status:'🕐 Activates Week 6', summary:'CI/CD · Staging · Production · Rollback · Release notes.' },
-    ];
-    const roster = document.getElementById('agentRoster');
-    roster.innerHTML = ROSTER_DETAILS.map(r => {
-      const a = AGENTS.find(x => x.id === r.id);
+    feed.innerHTML = act.events.map(e => {
+      const icon = ACT_ICONS[e.action_type] ?? '🤖';
+      const bg   = ACT_BG[e.action_type] ?? '#EEF4FB';
+      const agent = AGENTS.find(a => a.id === e.agent_name);
+      const label = agent ? agent.name : e.agent_name.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
       return `
-        <div class="activity-item" style="cursor:pointer;" onclick="selectAgentObj(${JSON.stringify(a).replace(/"/g,'&quot;')});showSection('chat')">
-          <img src="${a.avatar}" style="width:44px;height:44px;border-radius:50%;flex-shrink:0;border:2px solid var(--border);" alt="${a.humanName}"
-               onerror="this.style.display='none'">
-          <div class="activity-text">
-            <div class="activity-agent">${a.humanName.toUpperCase()}</div>
-            <div class="activity-summary" style="font-weight:600;color:var(--navy);font-size:13px;">${a.title}</div>
-            <div class="activity-summary">${r.summary}</div>
-            <div class="activity-time">${r.status}</div>
+        <div class="act-item">
+          <div class="act-icon-wrap" style="background:${bg};">${icon}</div>
+          <div class="act-text">
+            <div class="act-agent">${label}</div>
+            <div class="act-summary">${esc(e.summary)}</div>
+            <div class="act-time">${timeAgo(new Date(e.created_at))}</div>
           </div>
         </div>`;
     }).join('');
+  } catch {
+    document.getElementById('activityFeed').innerHTML = '<div class="loading-row">⚠️ Could not load activity.</div>';
   }
+}
 
-  // ── Init ───────────────────────────────────────────────────────────────────
-  buildAgentGrid();
-  buildAgentRoster();
-  checkHealth();
-  setInterval(checkHealth, 30000);  // Re-check every 30s
+// ── Tickets ────────────────────────────────────────────────
+async function loadTickets() {
+  try {
+    const resp = await fetch(`${API}/api/tickets`);
+    const data = await resp.json();
+
+    const tickets = data.tickets ?? [];
+    const done = tickets.filter(t => t.done).length;
+    const pct = tickets.length ? Math.round(done/tickets.length*100) : 0;
+    document.getElementById('progressPct').textContent = pct + '%';
+    document.getElementById('progressFill').style.width = pct + '%';
+
+    document.getElementById('ticketsList').innerHTML = tickets.length
+      ? tickets.map(t => `
+          <div class="ticket-card">
+            <div class="ticket-check ${t.done ? 'done' : 'todo'}">${t.done ? '✓' : ''}</div>
+            <div class="ticket-body">
+              <div class="ticket-id">${esc(t.id)}</div>
+              <div class="ticket-title-text">${esc(t.title)}</div>
+              <div class="ticket-owner-tag">${esc(t.owner ?? '')}</div>
+            </div>
+          </div>`).join('')
+      : '<div class="loading-row">No tickets found.</div>';
+
+    // PR queue
+    const prResp = await fetch(`${API}/api/pr-queue`);
+    const prData = await prResp.json();
+    document.getElementById('prQueueSection').innerHTML = (prData.prs?.length)
+      ? prData.prs.map(pr => `<div class="ticket-card">…</div>`).join('')
+      : `<div class="pr-empty">✅ No PRs awaiting your approval</div>`;
+  } catch {
+    document.getElementById('ticketsList').innerHTML = '<div class="loading-row">⚠️ Could not load tickets.</div>';
+  }
+}
+
+// ── Health check ───────────────────────────────────────────
+async function checkHealth() {
+  try {
+    const r = await fetch(`${API}/health`, { signal: AbortSignal.timeout(5000) });
+    const dot = document.getElementById('statusDot');
+    const sub = document.getElementById('homeStatus');
+    if (r.ok) {
+      dot.style.background = '#25D366';
+      const data = await r.json();
+      const dbOk = data.database === 'connected';
+      sub.textContent = `All agents online · ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}${dbOk ? '' : ' · DB offline'}`;
+    } else {
+      dot.style.background = '#FF5252';
+      document.getElementById('homeStatus').textContent = 'Orchestrator error';
+    }
+  } catch {
+    document.getElementById('statusDot').style.background = '#9E9E9E';
+    document.getElementById('homeStatus').textContent = 'Orchestrator offline';
+  }
+}
+
+// ── Utilities ──────────────────────────────────────────────
+function now() { return new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); }
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>'); }
+function timeAgo(d) {
+  const s = Math.floor((Date.now()-d)/1000);
+  if(s<60) return 'just now'; if(s<3600) return Math.floor(s/60)+'m ago';
+  if(s<86400) return Math.floor(s/3600)+'h ago'; return Math.floor(s/86400)+'d ago';
+}
+
+// ── Init ───────────────────────────────────────────────────
+buildConvoList();
+checkHealth();
+setInterval(checkHealth, 30000);
 </script>
-
 </body>
 </html>
