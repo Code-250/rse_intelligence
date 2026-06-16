@@ -31,21 +31,16 @@ logger = logging.getLogger(__name__)
 # ── NIM configuration ─────────────────────────────────────────────────────────
 NIM_API_KEY  = os.getenv("NVIDIA_NIM_API_KEY", "")
 NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
-MAX_TOKENS   = int(os.getenv("AGENT_MAX_TOKENS", "1500"))
-TEMPERATURE  = float(os.getenv("AGENT_TEMPERATURE", "0.3"))
+MAX_TOKENS   = 1500
+TEMPERATURE  = 0.3
 
-# Primary model from env, then an ordered fallback chain tried automatically
-# on 404 (model renamed/retired) so agents never go dark due to a slug change.
-_PRIMARY_MODEL = os.getenv("AGENT_MODEL", "meta/llama-3.1-70b-instruct")
-_FALLBACK_MODELS = [
+# Models tried in order — first one that responds wins.
+# No env var needed: the chain handles rotation automatically on 404.
+AGENT_MODEL_CHAIN: list[str] = [
     "meta/llama-3.1-70b-instruct",
     "meta/llama-3.3-70b-instruct",
     "mistralai/mistral-medium-3.5-128b",
     "nvidia/nemotron-3-super-120b-a12b",
-]
-# Build deduplicated list: primary first, then fallbacks not already listed
-AGENT_MODEL_CHAIN: list[str] = [_PRIMARY_MODEL] + [
-    m for m in _FALLBACK_MODELS if m != _PRIMARY_MODEL
 ]
 
 # ── Agent registry ────────────────────────────────────────────────────────────
