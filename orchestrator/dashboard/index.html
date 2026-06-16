@@ -135,63 +135,200 @@
     .agent-role  { font-size: 10px; opacity: 0.7; margin-top: 1px; }
     .agent-card.selected { box-shadow: 0 0 0 3px white, 0 0 0 5px rgba(0,201,167,0.7); }
 
-    /* ── Chat ── */
-    .chat-header {
-      display: flex; align-items: center; gap: 10px;
-      padding: 12px 16px;
-      background: var(--navy);
-      border-radius: var(--radius) var(--radius) 0 0;
-      margin-bottom: 0;
-    }
-    .chat-agent-name { color: white; font-weight: 700; font-size: 15px; }
-    .chat-agent-role { color: rgba(255,255,255,0.6); font-size: 12px; }
-    .chat-box {
-      background: var(--card);
-      border-radius: 0 0 var(--radius) var(--radius);
-      height: 340px;
-      overflow-y: auto;
-      padding: 16px;
+    /* ── WhatsApp-style Chat ── */
+    .wa-window {
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.13);
       display: flex;
       flex-direction: column;
-      gap: 10px;
-      scroll-behavior: smooth;
+      margin-bottom: 12px;
     }
-    .msg { max-width: 85%; padding: 10px 14px; border-radius: 16px; font-size: 14px; line-height: 1.5; }
-    .msg.user {
-      background: var(--navy); color: white;
-      border-bottom-right-radius: 4px;
-      align-self: flex-end;
-    }
-    .msg.assistant {
-      background: #EEF4FB; color: var(--text);
-      border-bottom-left-radius: 4px;
-      align-self: flex-start;
-    }
-    .msg.system { background: #FFF3E0; color: #E65100; align-self: center; font-size: 12px; font-style: italic; }
-    .msg-time { font-size: 10px; opacity: 0.5; margin-top: 4px; }
 
-    .chat-input-row {
-      display: flex; gap: 8px; padding: 12px;
-      background: var(--card);
-      border-top: 1px solid var(--border);
-      border-radius: 0 0 var(--radius) var(--radius);
+    /* Header — WhatsApp green bar */
+    .wa-header {
+      background: #075E54;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
     }
-    .chat-input {
-      flex: 1; padding: 10px 14px;
-      border: 1.5px solid var(--border); border-radius: 24px;
-      font-size: 14px; outline: none; transition: border-color 0.2s;
-      background: var(--bg);
+    .wa-back { color: white; font-size: 20px; opacity: 0.85; cursor: pointer; flex-shrink: 0; }
+    .wa-avatar {
+      width: 38px; height: 38px; border-radius: 50%;
+      overflow: hidden; flex-shrink: 0;
+      background: rgba(255,255,255,0.15);
     }
-    .chat-input:focus { border-color: var(--teal); }
-    .chat-send {
-      width: 42px; height: 42px; border-radius: 50%;
-      background: var(--teal); color: white; border: none;
-      font-size: 18px; cursor: pointer; display: flex;
-      align-items: center; justify-content: center; transition: background 0.2s;
+    .wa-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .wa-info { flex: 1; min-width: 0; }
+    .wa-name { color: white; font-size: 15px; font-weight: 600; line-height: 1.2; }
+    .wa-status {
+      color: rgba(255,255,255,0.75); font-size: 12px; margin-top: 1px;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .wa-online-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #25D366; display: inline-block;
+    }
+    .wa-actions { display: flex; gap: 18px; color: white; font-size: 18px; opacity: 0.85; }
+
+    /* Chat body — WhatsApp wallpaper */
+    .wa-body {
+      height: 360px;
+      overflow-y: auto;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      scroll-behavior: smooth;
+      background-color: #E5DDD5;
+      background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23c5b9ae' fill-opacity='0.18'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    }
+    .wa-body::-webkit-scrollbar { width: 4px; }
+    .wa-body::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 4px; }
+
+    /* Date pill */
+    .wa-date-pill {
+      align-self: center;
+      background: rgba(225,245,254,0.92);
+      color: #555;
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 8px;
+      margin: 6px 0;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    }
+
+    /* Bubbles */
+    .wa-msg {
+      max-width: 82%;
+      padding: 7px 10px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      line-height: 1.45;
+      position: relative;
+      word-break: break-word;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+      margin-bottom: 2px;
+    }
+    /* Sent — right, green */
+    .wa-msg.sent {
+      background: #DCF8C6;
+      color: #111;
+      align-self: flex-end;
+      border-bottom-right-radius: 2px;
+    }
+    .wa-msg.sent::after {
+      content: '';
+      position: absolute;
+      bottom: 0; right: -7px;
+      width: 0; height: 0;
+      border-left: 7px solid #DCF8C6;
+      border-top: 7px solid transparent;
+    }
+    /* Received — left, white */
+    .wa-msg.received {
+      background: #fff;
+      color: #111;
+      align-self: flex-start;
+      border-bottom-left-radius: 2px;
+    }
+    .wa-msg.received::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: -7px;
+      width: 0; height: 0;
+      border-right: 7px solid #fff;
+      border-top: 7px solid transparent;
+    }
+    /* Sender name inside received bubble (coloured) */
+    .wa-sender {
+      font-size: 12px; font-weight: 700;
+      color: #075E54;
+      margin-bottom: 3px;
+    }
+    /* Timestamp + tick — bottom right of bubble */
+    .wa-meta {
+      position: absolute;
+      bottom: 5px; right: 8px;
+      display: flex; align-items: center; gap: 3px;
+      font-size: 10px; color: #8a9197;
+      white-space: nowrap;
+    }
+    .wa-tick { color: #4FC3F7; font-size: 12px; }
+
+    /* System / notice pill */
+    .wa-notice {
+      align-self: center;
+      background: rgba(255,243,224,0.95);
+      color: #795548;
+      font-size: 11px;
+      padding: 5px 14px;
+      border-radius: 8px;
+      margin: 4px 0;
+      font-style: italic;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+    }
+
+    /* Typing indicator */
+    .wa-typing {
+      background: #fff;
+      align-self: flex-start;
+      padding: 10px 14px 10px;
+      border-radius: 8px;
+      border-bottom-left-radius: 2px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+    }
+    .wa-typing::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: -7px;
+      width: 0; height: 0;
+      border-right: 7px solid #fff;
+      border-top: 7px solid transparent;
+    }
+    .wa-dots { display: flex; gap: 4px; align-items: center; height: 16px; }
+    .wa-dots span {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #90A4AE; display: block;
+      animation: wadot 1.2s infinite ease-in-out;
+    }
+    .wa-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .wa-dots span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes wadot { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-5px)} }
+
+    /* Input bar */
+    .wa-input-bar {
+      background: #F0F0F0;
+      padding: 8px 10px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .wa-emoji-btn {
+      color: #8a9197; font-size: 22px;
+      background: none; border: none; cursor: pointer; flex-shrink: 0;
+      padding: 0 2px;
+    }
+    .wa-input {
+      flex: 1;
+      background: white;
+      border: none; border-radius: 22px;
+      padding: 9px 14px;
+      font-size: 15px;
+      outline: none;
+      line-height: 1.4;
+      font-family: inherit;
+    }
+    .wa-send-btn {
+      width: 44px; height: 44px; border-radius: 50%;
+      background: #075E54; color: white;
+      border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
       flex-shrink: 0;
+      transition: background 0.2s;
+      font-size: 18px;
     }
-    .chat-send:hover { background: #005A4F; }
-    .chat-send:disabled { background: var(--border); cursor: not-allowed; }
+    .wa-send-btn:hover { background: #054d44; }
+    .wa-send-btn:disabled { background: #B0BEC5; cursor: not-allowed; }
 
     /* ── Activity feed ── */
     .activity-item {
@@ -293,29 +430,51 @@
   <!-- Agent picker -->
   <div class="agent-grid" style="margin-top:4px;" id="agentGrid"></div>
 
-  <!-- Chat window -->
-  <div style="border-radius: var(--radius); overflow:hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.1); margin-bottom:12px;">
-    <div class="chat-header">
-      <div id="chatEmoji">
-        <img src="https://api.dicebear.com/8.x/personas/svg?seed=AriaChen&backgroundColor=0D2B4E&backgroundType=solid"
-             style="width:36px;height:36px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);" alt="Aria Chen">
+  <!-- WhatsApp-style chat window -->
+  <div class="wa-window">
+
+    <!-- Header -->
+    <div class="wa-header">
+      <span class="wa-back">‹</span>
+      <div class="wa-avatar" id="waAvatar">
+        <img src="https://api.dicebear.com/8.x/personas/svg?seed=AriaChen&backgroundColor=075E54&backgroundType=solid"
+             alt="Aria Chen" onerror="this.style.display='none'">
       </div>
-      <div>
-        <div class="chat-agent-name" id="chatAgentName">Aria Chen</div>
-        <div class="chat-agent-role" id="chatAgentRole">Chief Technology Officer — Ask me anything</div>
+      <div class="wa-info">
+        <div class="wa-name" id="waName">Aria Chen</div>
+        <div class="wa-status">
+          <span class="wa-online-dot"></span>
+          <span id="waStatus">online</span>
+        </div>
+      </div>
+      <div class="wa-actions">
+        <span title="Voice call">📞</span>
+        <span title="More options">⋮</span>
       </div>
     </div>
-    <div class="chat-box" id="chatBox">
-      <div class="msg assistant">
-        👋 Hello Richard. I'm your Coordinator Agent — the CTO of RSE Intelligence.
-        You can talk to any agent by tapping their card above. What do you need today?
+
+    <!-- Messages -->
+    <div class="wa-body" id="chatBox">
+      <div class="wa-date-pill">Today</div>
+      <div class="wa-msg received" style="position:relative;">
+        <div class="wa-sender">Aria Chen</div>
+        Hello Richard 👋 I'm Aria, your CTO. Tap any team member above to switch conversations. What do you need?
+        <div class="wa-meta">00:00 <span class="wa-tick">✓✓</span></div>
       </div>
     </div>
-    <div class="chat-input-row">
-      <input class="chat-input" id="chatInput" placeholder="Ask your agent..." autocomplete="off"
-             onkeydown="if(event.key==='Enter')sendMessage()">
-      <button class="chat-send" id="sendBtn" onclick="sendMessage()">➤</button>
+
+    <!-- Input bar -->
+    <div class="wa-input-bar">
+      <button class="wa-emoji-btn">😊</button>
+      <input class="wa-input" id="chatInput" placeholder="Message" autocomplete="off"
+             onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage()}">
+      <button class="wa-send-btn" id="sendBtn" onclick="sendMessage()">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+        </svg>
+      </button>
     </div>
+
   </div>
 
   <!-- Quick commands -->
@@ -440,15 +599,23 @@
     document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('selected'));
     document.getElementById('card-' + a.id).classList.add('selected');
 
-    document.getElementById('chatEmoji').textContent = '';
-    document.getElementById('chatEmoji').innerHTML =
-      `<img src="${a.avatar}" style="width:36px;height:36px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);" alt="${a.humanName}" onerror="this.outerHTML='<span style=font-size:22px>${a.cssClass==='coordinator'?'🧠':a.cssClass==='backend'?'🔧':a.cssClass==='mobile'?'📱':a.cssClass==='pm'?'🎫':a.cssClass==='marketing'?'📣':'🚀'}</span>'">`;
-    document.getElementById('chatAgentName').textContent = a.humanName;
-    document.getElementById('chatAgentRole').textContent = a.title + ' — Ask me anything';
+    // Update WhatsApp header
+    document.getElementById('waName').textContent = a.humanName;
+    document.getElementById('waStatus').textContent = 'online';
+    document.getElementById('waAvatar').innerHTML =
+      `<img src="${a.avatar.replace('0D2B4E','075E54').replace('E65100','075E54').replace('4A148C','075E54').replace('1B5E20','075E54').replace('1565C0','075E54').replace('00796B','075E54')}" alt="${a.humanName}" onerror="this.style.display='none'">`;
 
     const box = document.getElementById('chatBox');
-    box.innerHTML = `<div class="msg system">Switched to ${a.humanName}</div>`;
-    addMessage('assistant', `Hi Richard, it's ${a.humanName}. How can I help you today?`);
+    const t = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    box.innerHTML = `
+      <div class="wa-date-pill">Today</div>
+      <div class="wa-notice">You switched to ${a.humanName}</div>
+      <div class="wa-msg received" style="position:relative;">
+        <div class="wa-sender">${a.humanName}</div>
+        Hi Richard, it's ${a.humanName}. How can I help you today?
+        <div class="wa-meta">${t} <span class="wa-tick">✓✓</span></div>
+      </div>`;
+    box.scrollTop = box.scrollHeight;
   }
 
   // ── Navigation ─────────────────────────────────────────────────────────────
@@ -486,9 +653,22 @@
   function addMessage(role, text, time) {
     const box = document.getElementById('chatBox');
     const div = document.createElement('div');
-    div.className = 'msg ' + role;
     const t = time || new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-    div.innerHTML = `${escapeHtml(text)}<div class="msg-time">${t}</div>`;
+
+    if (role === 'user') {
+      div.className = 'wa-msg sent';
+      div.style.position = 'relative';
+      div.innerHTML = `${escapeHtml(text)}<div class="wa-meta">${t} <span class="wa-tick">✓✓</span></div>`;
+    } else if (role === 'assistant') {
+      const agentInfo = AGENTS.find(a => a.id === currentAgent) || AGENTS[0];
+      div.className = 'wa-msg received';
+      div.style.position = 'relative';
+      div.innerHTML = `<div class="wa-sender">${agentInfo.humanName}</div>${escapeHtml(text)}<div class="wa-meta">${t} <span class="wa-tick">✓✓</span></div>`;
+    } else {
+      div.className = 'wa-notice';
+      div.textContent = text;
+    }
+
     box.appendChild(div);
     box.scrollTop = box.scrollHeight;
   }
@@ -496,9 +676,10 @@
   function addTyping() {
     const box = document.getElementById('chatBox');
     const div = document.createElement('div');
-    div.className = 'msg assistant';
+    div.className = 'wa-msg wa-typing';
     div.id = 'typing-indicator';
-    div.innerHTML = '<span style="opacity:0.6">Agent is thinking...</span>';
+    div.style.position = 'relative';
+    div.innerHTML = `<div class="wa-dots"><span></span><span></span><span></span></div>`;
     box.appendChild(div);
     box.scrollTop = box.scrollHeight;
     return div;
@@ -511,7 +692,8 @@
 
     isLoading = true;
     input.value = '';
-    document.getElementById('sendBtn').disabled = true;
+    const sendBtn = document.getElementById('sendBtn');
+    sendBtn.disabled = true;
 
     addMessage('user', text);
     const typing = addTyping();
@@ -533,7 +715,7 @@
     }
 
     isLoading = false;
-    document.getElementById('sendBtn').disabled = false;
+    sendBtn.disabled = false;
     input.focus();
   }
 
