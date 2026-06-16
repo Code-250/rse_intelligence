@@ -29,12 +29,24 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # ── NIM configuration ─────────────────────────────────────────────────────────
-NIM_API_KEY   = os.getenv("NVIDIA_NIM_API_KEY", "")
-NIM_BASE_URL  = "https://integrate.api.nvidia.com/v1"
-# Use the most capable model for agent reasoning
-AGENT_MODEL   = os.getenv("AGENT_MODEL", "nvidia/llama-3.1-nemotron-70b-instruct")
-MAX_TOKENS    = int(os.getenv("AGENT_MAX_TOKENS", "1500"))
-TEMPERATURE   = float(os.getenv("AGENT_TEMPERATURE", "0.3"))
+NIM_API_KEY  = os.getenv("NVIDIA_NIM_API_KEY", "")
+NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
+MAX_TOKENS   = int(os.getenv("AGENT_MAX_TOKENS", "1500"))
+TEMPERATURE  = float(os.getenv("AGENT_TEMPERATURE", "0.3"))
+
+# Primary model from env, then an ordered fallback chain tried automatically
+# on 404 (model renamed/retired) so agents never go dark due to a slug change.
+_PRIMARY_MODEL = os.getenv("AGENT_MODEL", "meta/llama-3.1-70b-instruct")
+_FALLBACK_MODELS = [
+    "meta/llama-3.1-70b-instruct",
+    "meta/llama-3.3-70b-instruct",
+    "mistralai/mistral-medium-3.5-128b",
+    "nvidia/nemotron-3-super-120b-a12b",
+]
+# Build deduplicated list: primary first, then fallbacks not already listed
+AGENT_MODEL_CHAIN: list[str] = [_PRIMARY_MODEL] + [
+    m for m in _FALLBACK_MODELS if m != _PRIMARY_MODEL
+]
 
 # ── Agent registry ────────────────────────────────────────────────────────────
 AGENT_NAMES = [
@@ -140,29 +152,24 @@ def resolve_agent(raw_name: str) -> str:
     return "coordinator"  # Default to coordinator if unrecognised
 
 
-def call_nim(system_prompt: str, messages: list[dict]) -> str:
+def _call_nim_model(model: str, system_prompt: str, messages: list[dict]) -> tuple[str | None, bool]:
     """
-    Call NVIDIA NIM chat completions API.
-    Uses requests directly (same pattern as backend/llm/client.py).
-    Returns the assistant's response text, or an error message on failure.
-    """
-    if not NIM_API_KEY:
-        return (
-            "⚠️  NVIDIA_NIM_API_KEY is not set. "
-            "Add it to your .env file to activate the agents."
-        )
+    Attempt a single NIM call with a specific model.
 
-    payload = {
-        "model": AGENT_MODEL,
-        "messages": [{"role": "system", "content": system_prompt}] + messages,
-        "max_tokens": MAX_TOKENS,
-        "temperature": TEMPERATURE,
-    }
+    Returns (response_text, should_try_next) where:
+      should_try_next=True  means 404/model-not-found — caller should try the next model
+      should_try_next=False means success, auth error, or non-recoverable — stop trying
+    """
     headers = {
         "Authorization": f"Bearer {NIM_API_KEY}",
         "Content-Type": "application/json",
     }
-
+    payload = {
+        "model": model,
+        "messages": [{"role": "system", "content": system_prompt}] + messages,
+        "max_tokens": MAX_TOKENS,
+        "temperature": TEMPERATURE,
+    }
     try:
         resp = requests.post(
             f"{NIM_BASE_URL}/chat/completions",
@@ -172,20 +179,52 @@ def call_nim(system_prompt: str, messages: list[dict]) -> str:
         )
         if resp.status_code == 200:
             text = resp.json()["choices"][0]["message"]["content"]
-            logger.info("[NIM] %s: %d chars returned", AGENT_MODEL, len(text))
-            return text.strip()
+            logger.info("[NIM] ✓ %s — %d chars", model, len(text))
+            return text.strip(), False
 
-        logger.error("[NIM] HTTP %d: %s", resp.status_code, resp.text[:200])
-        return f"⚠️  NIM API error {resp.status_code}. Please try again."
+        if resp.status_code == 404:
+            logger.warning("[NIM] 404 — model not found: %s — trying next in chain", model)
+            return None, True  # try next model
+
+        if resp.status_code == 401:
+            logger.error("[NIM] 401 Unauthorised — check NVIDIA_NIM_API_KEY")
+            return None, False  # bad key — no point trying more models
+
+        logger.error("[NIM] HTTP %d for %s: %s", resp.status_code, model, resp.text[:200])
+        return None, False
 
     except requests.exceptions.Timeout:
-        logger.error("[NIM] Request timed out")
-        return "⚠️  The agent took too long to respond. Please try again."
+        logger.warning("[NIM] Timeout on %s", model)
+        return None, False
     except Exception as e:
-        logger.error("[NIM] Unexpected error: %s", e)
-        return f"⚠️  Agent error: {e}"
+        logger.error("[NIM] Error on %s: %s", model, e)
+        return None, False
 
 
+def call_nim(system_prompt: str, messages: list[dict]) -> str:
+    """
+    Call NVIDIA NIM, walking the model fallback chain on 404.
+    Returns the first successful response, or a user-facing error string.
+    """
+    if not NIM_API_KEY:
+        return (
+            "⚠️  NVIDIA_NIM_API_KEY is not set. "
+            "Add it to your .env file to activate the agents."
+        )
+
+    for model in AGENT_MODEL_CHAIN:
+        text, try_next = _call_nim_model(model, system_prompt, messages)
+        if text:
+            return text
+        if not try_next:
+            break  # non-404 error — stop immediately
+
+    logger.error("[NIM] All models in chain failed: %s", AGENT_MODEL_CHAIN)
+    return (
+        "⚠️  Could not reach any NIM model. "
+        f"Tried: {', '.join(AGENT_MODEL_CHAIN)}. "
+        "Check your NVIDIA_NIM_API_KEY and Railway logs."
+    )
 def run_agent(agent_name: str, user_message: str, history: list[dict]) -> str:
     """
     Run an agent with the given message and conversation history.
