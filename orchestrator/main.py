@@ -45,6 +45,7 @@ from orchestrator.db.activity import (
     log_activity,
     save_message,
     get_or_create_session,
+    db_available,
 )
 from orchestrator.scheduler.tasks import run_scheduler
 
@@ -90,7 +91,12 @@ app.add_middleware(
 
 @app.get("/health", tags=["infra"])
 async def health():
-    return {"status": "ok", "agents": AGENT_NAMES}
+    return {
+        "status": "ok",
+        "agents": AGENT_NAMES,
+        "database": "connected" if db_available() else "unavailable — set DATABASE_URL in Railway Variables",
+        "nim_key_set": bool(os.getenv("NVIDIA_NIM_API_KEY")),
+    }
 
 
 # ── Dashboard (mobile web PWA) ────────────────────────────────────────────────

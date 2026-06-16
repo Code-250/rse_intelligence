@@ -18,60 +18,95 @@ from dotenv import load_dotenv
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost:5432/rse_intelligence")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+
+_DB_AVAILABLE = False  # set to True after a successful init_db()
 
 
 def get_conn():
+    if not DATABASE_URL:
+        raise RuntimeError(
+            "DATABASE_URL is not set. "
+            "In Railway: add a PostgreSQL service and link it to this service, "
+            "or set DATABASE_URL manually in the Variables tab."
+        )
     return psycopg2.connect(DATABASE_URL)
 
 
+def db_available() -> bool:
+    return _DB_AVAILABLE
+
+
 def init_db():
-    """Create orchestrator tables if they don't exist. Safe to call on every startup."""
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS orch_sessions (
-            id          SERIAL PRIMARY KEY,
-            session_key TEXT UNIQUE NOT NULL,        -- "web:{uuid}" or "whatsapp:{phone}"
-            agent_name  TEXT NOT NULL DEFAULT 'coordinator',
-            channel     TEXT NOT NULL DEFAULT 'web', -- web | whatsapp
-            started_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            last_active TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
+    """
+    Create orchestrator tables if they don't exist.
+    Fails gracefully — the app starts even without a database.
+    Features that need the DB (activity log, chat history) degrade to no-ops.
+    """
+    global _DB_AVAILABLE
+    if not DATABASE_URL:
+        logger.warning(
+            "DATABASE_URL not set — running without database. "
+            "Chat history and activity logging are disabled. "
+            "To fix: add a PostgreSQL service in Railway and link it to this service."
+        )
+        return
 
-        CREATE TABLE IF NOT EXISTS orch_messages (
-            id          SERIAL PRIMARY KEY,
-            session_key TEXT NOT NULL,
-            role        TEXT NOT NULL,               -- user | assistant
-            agent_name  TEXT NOT NULL,
-            content     TEXT NOT NULL,
-            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS orch_sessions (
+                id          SERIAL PRIMARY KEY,
+                session_key TEXT UNIQUE NOT NULL,
+                agent_name  TEXT NOT NULL DEFAULT 'coordinator',
+                channel     TEXT NOT NULL DEFAULT 'web',
+                started_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                last_active TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
 
-        CREATE INDEX IF NOT EXISTS idx_orch_messages_session
-            ON orch_messages (session_key, created_at DESC);
+            CREATE TABLE IF NOT EXISTS orch_messages (
+                id          SERIAL PRIMARY KEY,
+                session_key TEXT NOT NULL,
+                role        TEXT NOT NULL,
+                agent_name  TEXT NOT NULL,
+                content     TEXT NOT NULL,
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
 
-        CREATE TABLE IF NOT EXISTS orch_activity (
-            id           SERIAL PRIMARY KEY,
-            agent_name   TEXT NOT NULL,
-            action_type  TEXT NOT NULL,              -- message | ticket_created | pr_reviewed | deploy | digest_sent
-            summary      TEXT NOT NULL,
-            metadata     JSONB,
-            created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
+            CREATE INDEX IF NOT EXISTS idx_orch_messages_session
+                ON orch_messages (session_key, created_at DESC);
 
-        CREATE INDEX IF NOT EXISTS idx_orch_activity_agent
-            ON orch_activity (agent_name, created_at DESC);
-    """)
-    conn.commit()
-    cur.close()
-    conn.close()
-    logger.info("Orchestrator DB tables ready")
+            CREATE TABLE IF NOT EXISTS orch_activity (
+                id           SERIAL PRIMARY KEY,
+                agent_name   TEXT NOT NULL,
+                action_type  TEXT NOT NULL,
+                summary      TEXT NOT NULL,
+                metadata     JSONB,
+                created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_orch_activity_agent
+                ON orch_activity (agent_name, created_at DESC);
+        """)
+        conn.commit()
+        cur.close()
+        conn.close()
+        _DB_AVAILABLE = True
+        logger.info("Orchestrator DB tables ready")
+    except Exception as e:
+        logger.error(
+            "Database init failed — running without DB. "
+            "Chat history and activity log are disabled. Error: %s", e
+        )
 
 
 # ── Sessions ──────────────────────────────────────────────────────────────────
 
 def get_or_create_session(session_key: str, channel: str = "web", agent_name: str = "coordinator") -> dict:
+    if not _DB_AVAILABLE:
+        return {"session_key": session_key, "channel": channel, "agent_name": agent_name}
+    # original body below
     conn = get_conn()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute("""
@@ -91,6 +126,8 @@ def get_or_create_session(session_key: str, channel: str = "web", agent_name: st
 # ── Messages ──────────────────────────────────────────────────────────────────
 
 def save_message(session_key: str, role: str, agent_name: str, content: str):
+    if not _DB_AVAILABLE:
+        return
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
@@ -103,6 +140,8 @@ def save_message(session_key: str, role: str, agent_name: str, content: str):
 
 
 def get_conversation_history(session_key: str, limit: int = 20) -> list[dict]:
+    if not _DB_AVAILABLE:
+        return []
     """Return last N messages as [{role, content}] for LLM context."""
     conn = get_conn()
     cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -122,6 +161,8 @@ def get_conversation_history(session_key: str, limit: int = 20) -> list[dict]:
 # ── Activity log ──────────────────────────────────────────────────────────────
 
 def log_activity(agent_name: str, action_type: str, summary: str, metadata: dict = None):
+    if not _DB_AVAILABLE:
+        return
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
@@ -134,6 +175,8 @@ def log_activity(agent_name: str, action_type: str, summary: str, metadata: dict
 
 
 def get_recent_activity(hours: int = 24, limit: int = 50) -> list[dict]:
+    if not _DB_AVAILABLE:
+        return []
     """Pull recent activity across all agents for the dashboard."""
     conn = get_conn()
     cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -151,6 +194,8 @@ def get_recent_activity(hours: int = 24, limit: int = 50) -> list[dict]:
 
 
 def get_daily_summary() -> dict:
+    if not _DB_AVAILABLE:
+        return {"agent_stats": [], "total_messages": 0}
     """Aggregate stats for the daily WhatsApp digest."""
     conn = get_conn()
     cur = conn.cursor(cursor_factory=RealDictCursor)
