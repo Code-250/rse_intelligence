@@ -13,8 +13,13 @@ import logging
 import os
 import urllib.parse
 
+import sys
+from pathlib import Path
 import requests
 from dotenv import load_dotenv
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from agents.identities import format_whatsapp_message
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -62,20 +67,11 @@ def send_whatsapp(message: str) -> bool:
 
 
 def send_agent_response(agent_name: str, response: str):
-    """Format and send an agent response to WhatsApp."""
-    agent_labels = {
-        "coordinator":         "🧠 Coordinator",
-        "backend-ai-dev":      "🔧 Backend Agent",
-        "mobile-frontend-dev": "📱 Mobile Agent",
-        "project-manager":     "🎫 PM Agent",
-        "sales-marketing":     "📣 Marketing Agent",
-        "deployment":          "🚀 Deployment Agent",
-    }
-    label = agent_labels.get(agent_name, f"🤖 {agent_name}")
-    # WhatsApp has a 4096-char limit
-    message = f"{label}:\n\n{response}"
-    if len(message) > 4000:
-        message = message[:3990] + "\n\n[truncated — see dashboard for full response]"
+    """
+    Format and send an agent response to WhatsApp using the agent's
+    human identity (name, header, sign-off from identities.py).
+    """
+    message = format_whatsapp_message(agent_name, response)
     send_whatsapp(message)
 
 

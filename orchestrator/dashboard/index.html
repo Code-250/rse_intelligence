@@ -104,12 +104,15 @@
       margin-bottom: 16px;
     }
     .agent-card {
-      border-radius: 10px;
+      border-radius: 12px;
       padding: 14px 12px;
       color: white;
       cursor: pointer;
       transition: transform 0.15s, box-shadow 0.15s;
       user-select: none;
+      display: flex;
+      align-items: center;
+      gap: 10px;
     }
     .agent-card:active { transform: scale(0.96); }
     .agent-card.coordinator   { background: linear-gradient(135deg, #0D2B4E, #1565C0); }
@@ -118,9 +121,18 @@
     .agent-card.pm            { background: linear-gradient(135deg, #E65100, #FFA726); }
     .agent-card.marketing     { background: linear-gradient(135deg, #4A148C, #9C27B0); }
     .agent-card.deployment    { background: linear-gradient(135deg, #1B5E20, #43A047); }
-    .agent-emoji { font-size: 24px; margin-bottom: 6px; }
-    .agent-name  { font-size: 13px; font-weight: 700; }
-    .agent-role  { font-size: 11px; opacity: 0.75; margin-top: 2px; }
+    .agent-avatar {
+      width: 44px; height: 44px; border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.5);
+      background: rgba(255,255,255,0.15);
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+    .agent-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .agent-info { flex: 1; min-width: 0; }
+    .agent-name  { font-size: 13px; font-weight: 700; line-height: 1.2; }
+    .agent-human-name { font-size: 11px; opacity: 0.85; margin-top: 1px; }
+    .agent-role  { font-size: 10px; opacity: 0.7; margin-top: 1px; }
     .agent-card.selected { box-shadow: 0 0 0 3px white, 0 0 0 5px rgba(0,201,167,0.7); }
 
     /* ── Chat ── */
@@ -279,46 +291,18 @@
 <div class="section active" id="section-chat">
 
   <!-- Agent picker -->
-  <div class="agent-grid" style="margin-top:4px;">
-    <div class="agent-card coordinator selected" onclick="selectAgent('coordinator','🧠','Coordinator','CTO Layer')" id="card-coordinator">
-      <div class="agent-emoji">🧠</div>
-      <div class="agent-name">Coordinator</div>
-      <div class="agent-role">CTO Layer</div>
-    </div>
-    <div class="agent-card pm" onclick="selectAgent('project-manager','🎫','PM Agent','Tickets & PRs')" id="card-project-manager">
-      <div class="agent-emoji">🎫</div>
-      <div class="agent-name">PM Agent</div>
-      <div class="agent-role">Tickets & PRs</div>
-    </div>
-    <div class="agent-card backend" onclick="selectAgent('backend-ai-dev','🔧','Backend Agent','Python · NIM')" id="card-backend-ai-dev">
-      <div class="agent-emoji">🔧</div>
-      <div class="agent-name">Backend Agent</div>
-      <div class="agent-role">Python · NIM</div>
-    </div>
-    <div class="agent-card mobile" onclick="selectAgent('mobile-frontend-dev','📱','Mobile Agent','React Native')" id="card-mobile-frontend-dev">
-      <div class="agent-emoji">📱</div>
-      <div class="agent-name">Mobile Agent</div>
-      <div class="agent-role">React Native</div>
-    </div>
-    <div class="agent-card marketing" onclick="selectAgent('sales-marketing','📣','Marketing','Analytics')" id="card-sales-marketing">
-      <div class="agent-emoji">📣</div>
-      <div class="agent-name">Marketing</div>
-      <div class="agent-role">Analytics</div>
-    </div>
-    <div class="agent-card deployment" onclick="selectAgent('deployment','🚀','Deployment','CI/CD')" id="card-deployment">
-      <div class="agent-emoji">🚀</div>
-      <div class="agent-name">Deployment</div>
-      <div class="agent-role">CI/CD</div>
-    </div>
-  </div>
+  <div class="agent-grid" style="margin-top:4px;" id="agentGrid"></div>
 
   <!-- Chat window -->
   <div style="border-radius: var(--radius); overflow:hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.1); margin-bottom:12px;">
     <div class="chat-header">
-      <div style="font-size:22px;" id="chatEmoji">🧠</div>
+      <div id="chatEmoji">
+        <img src="https://api.dicebear.com/8.x/personas/svg?seed=AriaChen&backgroundColor=0D2B4E&backgroundType=solid"
+             style="width:36px;height:36px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);" alt="Aria Chen">
+      </div>
       <div>
-        <div class="chat-agent-name" id="chatAgentName">Coordinator</div>
-        <div class="chat-agent-role" id="chatAgentRole">CTO Layer — Ask me anything</div>
+        <div class="chat-agent-name" id="chatAgentName">Aria Chen</div>
+        <div class="chat-agent-role" id="chatAgentRole">Chief Technology Officer — Ask me anything</div>
       </div>
     </div>
     <div class="chat-box" id="chatBox">
@@ -393,57 +377,8 @@
 <div class="section" id="section-agents">
 
   <div class="card">
-    <div class="card-title">Agent Roster</div>
-    <div id="agentRoster">
-      <div class="activity-item">
-        <div class="activity-icon" style="background:#EEF4FB;">🧠</div>
-        <div class="activity-text">
-          <div class="activity-agent">COORDINATOR</div>
-          <div class="activity-summary">CTO Layer — Orchestrates all agents, makes architecture decisions, structures deployments.</div>
-          <div class="activity-time">✅ Active</div>
-        </div>
-      </div>
-      <div class="activity-item">
-        <div class="activity-icon" style="background:#E0F2F1;">🔧</div>
-        <div class="activity-text">
-          <div class="activity-agent">BACKEND / AI DEVELOPER</div>
-          <div class="activity-summary">Python · FastAPI · PostgreSQL · NVIDIA NIM · Signal Engines</div>
-          <div class="activity-time">✅ Active — Sprint 1 in progress</div>
-        </div>
-      </div>
-      <div class="activity-item">
-        <div class="activity-icon" style="background:#E3F2FD;">📱</div>
-        <div class="activity-text">
-          <div class="activity-agent">MOBILE / FRONTEND DEVELOPER</div>
-          <div class="activity-summary">React Native · React Web · iOS · Android · UI/UX</div>
-          <div class="activity-time">✅ Active — Activated 16 June 2026</div>
-        </div>
-      </div>
-      <div class="activity-item">
-        <div class="activity-icon" style="background:#FFF3E0;">🎫</div>
-        <div class="activity-text">
-          <div class="activity-agent">PROJECT MANAGER</div>
-          <div class="activity-summary">GitHub tickets · PR reviews · Bug triage · Deadline tracking</div>
-          <div class="activity-time">✅ Active</div>
-        </div>
-      </div>
-      <div class="activity-item">
-        <div class="activity-icon" style="background:#F3E5F5;">📣</div>
-        <div class="activity-text">
-          <div class="activity-agent">SALES & MARKETING</div>
-          <div class="activity-summary">App store analytics · Ad platform recommendations · Revenue modelling</div>
-          <div class="activity-time">🕐 Activates at Product 1 Beta</div>
-        </div>
-      </div>
-      <div class="activity-item">
-        <div class="activity-icon" style="background:#E8F5E9;">🚀</div>
-        <div class="activity-text">
-          <div class="activity-agent">DEPLOYMENT</div>
-          <div class="activity-summary">CI/CD · Staging · Production · Rollback · Release notes</div>
-          <div class="activity-time">🕐 Activates Week 6 of Product 1</div>
-        </div>
-      </div>
-    </div>
+    <div class="card-title">The Team</div>
+    <div id="agentRoster"></div>
   </div>
 
   <div class="card">
@@ -467,14 +402,54 @@
   let sessionId = localStorage.getItem('sessionId') || '';
   let isLoading = false;
 
-  const AGENT_META = {
-    'coordinator':         { emoji:'🧠', name:'Coordinator',    role:'CTO Layer' },
-    'backend-ai-dev':      { emoji:'🔧', name:'Backend Agent',  role:'Python · NVIDIA NIM' },
-    'mobile-frontend-dev': { emoji:'📱', name:'Mobile Agent',   role:'React Native · React Web' },
-    'project-manager':     { emoji:'🎫', name:'PM Agent',       role:'Tickets & PR Reviews' },
-    'sales-marketing':     { emoji:'📣', name:'Marketing Agent',role:'Analytics · Revenue' },
-    'deployment':          { emoji:'🚀', name:'Deployment Agent',role:'CI/CD · Staging · Prod' },
-  };
+  const AGENTS = [
+    { id:'coordinator',         cssClass:'coordinator', humanName:'Aria Chen',   role:'CTO Layer',               title:'Chief Technology Officer',         avatar:'https://api.dicebear.com/8.x/personas/svg?seed=AriaChen&backgroundColor=0D2B4E&backgroundType=solid' },
+    { id:'project-manager',     cssClass:'pm',          humanName:'Marcus Webb', role:'Tickets & PRs',           title:'Engineering Project Manager',      avatar:'https://api.dicebear.com/8.x/personas/svg?seed=MarcusWebb&backgroundColor=E65100&backgroundType=solid' },
+    { id:'backend-ai-dev',      cssClass:'backend',     humanName:'Kwame Asante',role:'Python · NIM',            title:'Senior Backend & AI Engineer',     avatar:'https://api.dicebear.com/8.x/personas/svg?seed=KwameAsante&backgroundColor=00796B&backgroundType=solid' },
+    { id:'mobile-frontend-dev', cssClass:'mobile',      humanName:'Sofia Reyes', role:'React Native',            title:'Senior Mobile & Frontend Engineer',avatar:'https://api.dicebear.com/8.x/personas/svg?seed=SofiaReyes&backgroundColor=1565C0&backgroundType=solid' },
+    { id:'sales-marketing',     cssClass:'marketing',   humanName:'Priya Nair',  role:'Growth & Marketing',      title:'Head of Growth & Marketing',       avatar:'https://api.dicebear.com/8.x/personas/svg?seed=PriyaNair&backgroundColor=4A148C&backgroundType=solid' },
+    { id:'deployment',          cssClass:'deployment',  humanName:'Luca Romano', role:'DevOps & Infra',          title:'DevOps & Infrastructure Engineer', avatar:'https://api.dicebear.com/8.x/personas/svg?seed=LucaRomano&backgroundColor=1B5E20&backgroundType=solid' },
+  ];
+
+  // Legacy lookup used by activity feed and other spots
+  const AGENT_META = Object.fromEntries(AGENTS.map(a => [a.id, { name: a.humanName, role: a.title, avatar: a.avatar }]));
+
+  // ── Build agent grid with avatars ─────────────────────────────────────────
+  function buildAgentGrid() {
+    const grid = document.getElementById('agentGrid');
+    grid.innerHTML = AGENTS.map(a => `
+      <div class="agent-card ${a.cssClass}${a.id === 'coordinator' ? ' selected' : ''}"
+           id="card-${a.id}"
+           onclick="selectAgentObj(${JSON.stringify(a).replace(/"/g,'&quot;')})">
+        <div class="agent-avatar">
+          <img src="${a.avatar}" alt="${a.humanName}" loading="lazy"
+               onerror="this.style.display='none';this.parentNode.innerHTML='<div style=&quot;width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:20px&quot;>${a.cssClass === 'coordinator' ? '🧠' : a.cssClass === 'backend' ? '🔧' : a.cssClass === 'mobile' ? '📱' : a.cssClass === 'pm' ? '🎫' : a.cssClass === 'marketing' ? '📣' : '🚀'}</div>'">
+        </div>
+        <div class="agent-info">
+          <div class="agent-name">${a.humanName}</div>
+          <div class="agent-role">${a.title.split(' ').slice(0,3).join(' ')}</div>
+        </div>
+      </div>`).join('');
+  }
+
+  function selectAgentObj(a) {
+    currentAgent = a.id;
+    sessionId = '';
+    localStorage.removeItem('sessionId');
+
+    document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('selected'));
+    document.getElementById('card-' + a.id).classList.add('selected');
+
+    document.getElementById('chatEmoji').textContent = '';
+    document.getElementById('chatEmoji').innerHTML =
+      `<img src="${a.avatar}" style="width:36px;height:36px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);" alt="${a.humanName}" onerror="this.outerHTML='<span style=font-size:22px>${a.cssClass==='coordinator'?'🧠':a.cssClass==='backend'?'🔧':a.cssClass==='mobile'?'📱':a.cssClass==='pm'?'🎫':a.cssClass==='marketing'?'📣':'🚀'}</span>'">`;
+    document.getElementById('chatAgentName').textContent = a.humanName;
+    document.getElementById('chatAgentRole').textContent = a.title + ' — Ask me anything';
+
+    const box = document.getElementById('chatBox');
+    box.innerHTML = `<div class="msg system">Switched to ${a.humanName}</div>`;
+    addMessage('assistant', `Hi Richard, it's ${a.humanName}. How can I help you today?`);
+  }
 
   // ── Navigation ─────────────────────────────────────────────────────────────
   function showSection(name) {
@@ -713,7 +688,36 @@
       .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
+  // ── Build agents roster ────────────────────────────────────────────────────
+  function buildAgentRoster() {
+    const ROSTER_DETAILS = [
+      { id:'coordinator',         status:'✅ Active', summary:'CTO Layer — Architecture decisions, sprint planning, deployment sign-off.' },
+      { id:'backend-ai-dev',      status:'✅ Active — Sprint 1', summary:'Python · FastAPI · PostgreSQL · NVIDIA NIM · OCR pipeline.' },
+      { id:'mobile-frontend-dev', status:'✅ Active — Sprint 1', summary:'React Native · React Web · iOS · Android · UI/UX.' },
+      { id:'project-manager',     status:'✅ Active', summary:'GitHub tickets · PR reviews · Bug triage · Deadline tracking.' },
+      { id:'sales-marketing',     status:'🕐 Activates at Product 1 Beta', summary:'App store analytics · Ad platforms · Revenue modelling.' },
+      { id:'deployment',          status:'🕐 Activates Week 6', summary:'CI/CD · Staging · Production · Rollback · Release notes.' },
+    ];
+    const roster = document.getElementById('agentRoster');
+    roster.innerHTML = ROSTER_DETAILS.map(r => {
+      const a = AGENTS.find(x => x.id === r.id);
+      return `
+        <div class="activity-item" style="cursor:pointer;" onclick="selectAgentObj(${JSON.stringify(a).replace(/"/g,'&quot;')});showSection('chat')">
+          <img src="${a.avatar}" style="width:44px;height:44px;border-radius:50%;flex-shrink:0;border:2px solid var(--border);" alt="${a.humanName}"
+               onerror="this.style.display='none'">
+          <div class="activity-text">
+            <div class="activity-agent">${a.humanName.toUpperCase()}</div>
+            <div class="activity-summary" style="font-weight:600;color:var(--navy);font-size:13px;">${a.title}</div>
+            <div class="activity-summary">${r.summary}</div>
+            <div class="activity-time">${r.status}</div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
   // ── Init ───────────────────────────────────────────────────────────────────
+  buildAgentGrid();
+  buildAgentRoster();
   checkHealth();
   setInterval(checkHealth, 30000);  // Re-check every 30s
 </script>

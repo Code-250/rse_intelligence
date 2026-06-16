@@ -20,6 +20,11 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
+# Identity registry lives at repo root agents/identities.py
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from agents.identities import get_identity, persona_prefix
+
 load_dotenv()
 logger = logging.getLogger(__name__)
 
@@ -63,19 +68,39 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 def load_system_prompt(agent_name: str) -> str:
     """
-    Load the agent's CLAUDE.md as its system prompt.
-    Also injects current project state (open tickets, PR queue) as context.
+    Build the full system prompt for an agent:
+      1. Persona paragraph  — who this person IS (name, personality, sign-off)
+      2. CLAUDE.md          — role mandate, standards, ownership
+      3. Live project state — current sprint tickets and PR queue
     """
+    identity = get_identity(agent_name)
+
+    # 1. Persona — always first so the LLM stays in character throughout
+    persona = (
+        f"## YOUR IDENTITY\n"
+        f"{persona_prefix(agent_name)}\n\n"
+        f"Your full name is **{identity['name']}**. "
+        f"Your title is {identity['title']}. "
+        f"Your email is {identity['email']}. "
+        f"When you write commit messages, PR descriptions, GitHub comments, or WhatsApp messages, "
+        f"always write as {identity['name']} — a real person, not a bot. "
+        f"Never refer to yourself as an AI, agent, or assistant. "
+        f"You are a senior professional on the RSE Intelligence team.\n\n"
+        f"---\n"
+    )
+
+    # 2. Role mandate from CLAUDE.md
     claude_md = REPO_ROOT / "agents" / agent_name / "CLAUDE.md"
-    if not claude_md.exists():
+    if claude_md.exists():
+        role_prompt = claude_md.read_text(encoding="utf-8")
+    else:
         logger.warning("No CLAUDE.md found for agent: %s", agent_name)
-        return f"You are the {agent_name} agent for RSE Intelligence."
+        role_prompt = f"You own the {agent_name} function for RSE Intelligence."
 
-    base_prompt = claude_md.read_text(encoding="utf-8")
-
-    # Inject live project state so the agent has current context
+    # 3. Live project context
     context = _build_project_context(agent_name)
-    return f"{base_prompt}\n\n---\n## CURRENT PROJECT STATE\n{context}"
+
+    return f"{persona}{role_prompt}\n\n---\n## CURRENT PROJECT STATE\n{context}"
 
 
 def _build_project_context(agent_name: str) -> str:

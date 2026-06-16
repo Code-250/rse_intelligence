@@ -278,7 +278,8 @@ async def whatsapp_inbound(request: Request):
     save_message(session_key, "assistant", agent_name, response)
     log_activity(agent_name, "message", f"WhatsApp: {message[:80]}")
 
-    # Reply via Meta Cloud API (or CallMeBot fallback)
-    send_whatsapp_meta(sender_phone, f"🤖 {agent_name.title()}:\n\n{response}")
+    # Reply via Meta Cloud API (or CallMeBot fallback) with real agent identity
+    from agents.identities import format_whatsapp_message
+    send_whatsapp_meta(sender_phone, format_whatsapp_message(agent_name, response))
 
     return JSONResponse({"status": "ok"})
