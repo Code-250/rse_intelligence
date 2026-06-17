@@ -1,0 +1,1 @@
+financial_analysis_system_prompt = """Analyze the financial document and provide a summary, key ratios, risk flags, and a verdict."""
