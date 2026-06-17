@@ -26,18 +26,26 @@ It only acts when there's eligible work **and** budget remains.
   if `ISSUE_REQUIRE_READY_LABEL=true`, and every `Blocked by: #N` issue is closed.
 - **Done = the issue is closed** (which merging the PR does automatically).
 
-## 1. Agents respond to PR reviews (revision loop)
+## 1. Agents respond to PR reviews AND merge conflicts (revision loop)
 
-`executor.revise_open_prs()` → for each open `agent/*` PR:
+`executor.revise_open_prs()` → for each open `agent/*` PR, in priority order:
 
-- `get_pr_feedback(pr, head_sha)` collects review change-requests, reviewer/Copilot
-  comments, and failing CI checks — **only items newer than the PR's last commit**,
-  so a fix never re-triggers the same feedback (no infinite loop).
-- The authoring agent re-runs with the ticket spec + the PR's current files +
-  the feedback, then commits the fix to the **same branch** (`commit_files_to_branch`)
-  and posts a comment explaining what changed. The existing PR updates; CI re-runs.
+- **Merge conflicts first.** `pr_mergeable()` checks the PR's mergeable state. If
+  it's `dirty` (conflicts with `main`), the agent fetches its branch files + the
+  latest `main` versions, reconciles them, and `resolve_branch_conflicts()` writes
+  a real **merge commit** (tree = latest base + the agent's reconciled files,
+  parents = branch head + base head) so GitHub sees the PR as mergeable again.
+- **Then review/CI feedback.** `get_pr_feedback(pr, head_sha)` collects review
+  change-requests, reviewer/Copilot comments, and failing CI checks — **only items
+  newer than the PR's last commit**, so a fix never re-triggers the same feedback
+  (no infinite loop). The agent re-runs with the ticket spec + current files + the
+  feedback, commits the fix to the **same branch**, and comments what changed.
 
-Trigger manually any time: `POST /api/agents/revise-prs`.
+Either way the existing PR updates in place and CI re-runs. Trigger manually any
+time: `POST /api/agents/revise-prs`.
+
+> The PR author's token needs `repo` scope (it writes blobs/trees/commits via the
+> Git Data API to build the conflict-resolution merge commit).
 
 ## 2. A redeploy never restarts completed work
 

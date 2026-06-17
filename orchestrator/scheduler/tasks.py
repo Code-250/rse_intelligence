@@ -213,10 +213,10 @@ def autonomous_build_step():
             log_activity("coordinator", "pr_revised",
                          f"{rev.get('ticket_id')} updated after review by {rev.get('agent_display_name', 'agent')}")
             pr_line = f"\n🔀 {rev['pr_url']}" if rev.get("pr_url") else ""
+            detail = rev.get("summary") or f"{len(rev.get('files_changed', []))} files updated"
             send_whatsapp(
-                f"♻️ *Agent updated a PR after review*\n\n"
-                f"{rev.get('agent_display_name', 'Agent')} addressed feedback on "
-                f"{rev.get('ticket_id')} — {len(rev.get('files_changed', []))} files updated."
+                f"♻️ *Agent updated a PR*\n\n"
+                f"{rev.get('agent_display_name', 'Agent')} on {rev.get('ticket_id')}: {detail}"
                 f"{pr_line}\n\nCI will re-run; re-review when ready."
             )
             logger.info("[AutoBuild] %s revised PR #%s", rev.get("ticket_id"), rev.get("pr_number"))

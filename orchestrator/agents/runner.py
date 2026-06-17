@@ -34,13 +34,15 @@ NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
 MAX_TOKENS   = 1500
 TEMPERATURE  = 0.3
 
-# Models tried in order — first one that responds wins.
-# No env var needed: the chain handles rotation automatically on 404.
+# Models tried in order — first one that responds wins (rotates on 404).
+# Override with AGENT_NIM_MODEL (comma-separated). Nemotron 3 Ultra leads, with
+# widely-available Llama models as fallbacks so chat/reviews still work if the
+# Ultra slug isn't enabled on the account.
 AGENT_MODEL_CHAIN: list[str] = [
-    "meta/llama-3.1-70b-instruct",
-    "meta/llama-3.3-70b-instruct",
-    "mistralai/mistral-medium-3.5-128b",
-    "nvidia/nemotron-3-super-120b-a12b",
+    m.strip() for m in os.getenv(
+        "AGENT_NIM_MODEL",
+        "nvidia/nemotron-3-ultra-550b-a55b,meta/llama-3.3-70b-instruct,meta/llama-3.1-70b-instruct",
+    ).split(",") if m.strip()
 ]
 
 # ── Agent registry ────────────────────────────────────────────────────────────

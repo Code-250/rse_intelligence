@@ -939,6 +939,86 @@ def _revision_user_prompt(ticket: dict, feedback_text: str, existing_files: dict
     )
 
 
+def _conflict_user_prompt(ticket: dict, branch_files: dict, base_files: dict) -> str:
+    """Prompt the agent to reconcile its branch with the latest base branch."""
+    def _blob(d: dict) -> str:
+        return "\n\n".join(f"--- {p} ---\n{c[:8000]}" for p, c in d.items()) or "(none)"
+    return (
+        f"Your pull request for issue {ticket['id']} — {ticket['title']} has MERGE CONFLICTS "
+        f"with the base branch: `main` has changed since you branched, and your changes overlap.\n\n"
+        f"## The issue\n{ticket['full_text']}\n\n"
+        f"## Your branch's current version of each file\n{_blob(branch_files)}\n\n"
+        f"## The LATEST `main` version of those same files\n{_blob(base_files)}\n\n"
+        "Produce the correct, conflict-free FINAL content for every file you changed: preserve the "
+        "intent of your work while incorporating the latest changes from main. Rewrite each file in "
+        "full with write_file — never emit conflict markers (<<<<<<<, =======, >>>>>>>). When all "
+        "files are reconciled, call finish() with a short note on how you resolved the conflict."
+    )
+
+
+def _resolve_pr_conflicts(pr: dict, ticket: dict, agent_name: str,
+                          identity: dict, dev_token: str) -> dict:
+    """Resolve a PR's merge conflicts: reconcile files against base, then create a
+    merge commit on the branch so GitHub sees it as mergeable again."""
+    from orchestrator.channels.github import (
+        get_branch_files, get_files_at_ref, resolve_branch_conflicts, comment_on_pr,
+    )
+    branch = pr.get("branch", "")
+    pr_number = pr.get("number")
+    ticket_id = ticket["id"]
+
+    logger.info("[Executor] %s resolving merge conflicts on PR #%s (%s)",
+                identity["name"], pr_number, ticket_id)
+    log_activity_safe(agent_name, "pr_conflict_resolve_started",
+                      f"{ticket_id} — resolving merge conflicts on PR #{pr_number}")
+
+    branch_files = get_branch_files(branch)
+    if not branch_files:
+        return {"status": "revise_failed", "ticket_id": ticket_id, "pr_number": pr_number,
+                "message": "could not read branch files to resolve conflicts"}
+    base = os.getenv("GITHUB_BASE_BRANCH", "main")
+    base_files = get_files_at_ref(list(branch_files.keys()), base)
+
+    system_prompt = _build_executor_system_prompt(agent_name, ticket)
+    user_prompt = _conflict_user_prompt(ticket, branch_files, base_files)
+    loop = _run_provider_loop(agent_name, system_prompt, user_prompt, f"{ticket_id}-conflict")
+
+    # Overlay the agent's reconciled files onto the full branch set so no work is
+    # lost. If the model produced nothing (e.g. provider down), fall back to the
+    # branch's own content — the merge commit still clears the conflict.
+    resolved = {**branch_files, **(loop.get("written_files") or {})}
+
+    author = {"name": identity["name"],
+              "email": identity.get("github_email", identity.get("email", "agent@rse-intelligence.ai"))}
+    res = resolve_branch_conflicts(branch, resolved, dev_token, author,
+                                   f"{ticket_id}: resolve merge conflicts with {base}")
+    if not res.get("ok"):
+        comment_on_pr(pr_number, dev_token,
+                      f"**{identity['name']}**\n\nI tried to resolve the merge conflicts but hit an "
+                      f"error: {res.get('error', 'unknown')}. This may need a manual rebase.")
+        return {"status": "revise_failed", "ticket_id": ticket_id, "pr_number": pr_number,
+                "message": f"conflict resolution failed: {res.get('error')}",
+                "cost_usd": round(loop.get("total_cost", 0.0), 4)}
+
+    summary = loop.get("finish_summary") or "Merged the latest base branch and reconciled the changes."
+    comment_on_pr(pr_number, dev_token,
+                  f"**{identity['name']} — resolved merge conflicts**\n\n{summary}\n\n"
+                  f"_Merged the latest `{base}` into this branch; CI will re-run._")
+    log_activity_safe(agent_name, "pr_conflict_resolved",
+                      f"{ticket_id} — merge conflicts resolved on PR #{pr_number}")
+    return {
+        "status": "revised",
+        "ticket_id": ticket_id,
+        "pr_number": pr_number,
+        "pr_url": pr.get("html_url", ""),
+        "agent_name": agent_name,
+        "agent_display_name": identity["name"],
+        "summary": f"Resolved merge conflicts — {summary}",
+        "files_changed": sorted(resolved.keys()),
+        "cost_usd": round(loop.get("total_cost", 0.0), 4),
+    }
+
+
 def revise_one_pr(pr: dict) -> dict:
     """Have the authoring agent address review feedback on one open PR.
 
@@ -949,7 +1029,8 @@ def revise_one_pr(pr: dict) -> dict:
     "skipped", "error"}.
     """
     from orchestrator.channels.github import (
-        get_pr_feedback, get_branch_files, commit_files_to_branch, comment_on_pr, agent_token,
+        get_pr_feedback, get_branch_files, commit_files_to_branch, comment_on_pr,
+        agent_token, pr_mergeable,
     )
 
     branch = pr.get("branch", "")
@@ -962,11 +1043,6 @@ def revise_one_pr(pr: dict) -> dict:
     issue_number = int(m.group(1))
     ticket_id = f"#{issue_number}"
 
-    # Only act when there is NEW feedback since the last commit (prevents loops).
-    feedback = get_pr_feedback(pr_number, head_sha)
-    if not feedback.get("needs_revision"):
-        return {"status": "no_feedback", "ticket_id": ticket_id, "pr_number": pr_number}
-
     ticket = get_ticket(issue_number)
     if not ticket:
         return {"status": "skipped", "ticket_id": ticket_id, "reason": "issue not found on GitHub"}
@@ -977,6 +1053,16 @@ def revise_one_pr(pr: dict) -> dict:
     if not dev_token:
         return {"status": "revise_failed", "ticket_id": ticket_id,
                 "message": f"No GitHub token for {identity['name']} to push the revision."}
+
+    # 1) Merge conflicts block a PR no matter what — resolve them first.
+    merge = pr_mergeable(pr_number)
+    if merge.get("mergeable") is False or merge.get("mergeable_state") == "dirty":
+        return _resolve_pr_conflicts(pr, ticket, agent_name, identity, dev_token)
+
+    # 2) Otherwise address NEW review/CI feedback since the last commit (no loops).
+    feedback = get_pr_feedback(pr_number, head_sha)
+    if not feedback.get("needs_revision"):
+        return {"status": "no_feedback", "ticket_id": ticket_id, "pr_number": pr_number}
 
     logger.info("[Executor] %s revising %s (PR #%s) after review", identity["name"], ticket_id, pr_number)
     log_activity_safe(agent_name, "pr_revision_started", f"{ticket_id} — addressing review on PR #{pr_number}")

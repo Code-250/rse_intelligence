@@ -276,6 +276,129 @@ def commit_files_to_branch(branch: str, files: dict, token: str, author: dict, m
     return {"ok": bool(committed), "committed": committed}
 
 
+def pr_mergeable(pr_number: int, retries: int = 3) -> dict:
+    """Return a PR's mergeability. GitHub computes this asynchronously, so we poll.
+
+    Returns {"mergeable": bool|None, "mergeable_state": str, "head_sha": str,
+    "base": str}. mergeable_state == "dirty" (or mergeable is False) means the PR
+    has merge conflicts with its base branch.
+    """
+    token = _read_token()
+    owner, repo, _ = _cfg()
+    out = {"mergeable": None, "mergeable_state": "unknown", "head_sha": "", "base": ""}
+    if not token or not owner:
+        return out
+    for attempt in range(retries):
+        try:
+            r = requests.get(f"{API}/repos/{owner}/{repo}/pulls/{pr_number}",
+                             headers=_headers(token), timeout=30)
+            if r.status_code != 200:
+                break
+            d = r.json()
+            out["mergeable"] = d.get("mergeable")
+            out["mergeable_state"] = d.get("mergeable_state", "unknown")
+            out["head_sha"] = (d.get("head") or {}).get("sha", "")
+            out["base"] = (d.get("base") or {}).get("ref", "")
+            if d.get("mergeable") is not None:
+                break  # GitHub finished computing
+            time.sleep(2)  # not computed yet — wait and retry
+        except Exception as e:
+            logger.warning("[GitHub] pr_mergeable %s failed: %s", pr_number, e)
+            break
+    return out
+
+
+def get_files_at_ref(paths: list[str], ref: str) -> dict:
+    """Return {path: content} for the given paths as they exist on `ref` (e.g. main).
+
+    Missing/binary files are skipped. Used to show an agent the latest base
+    version of each file when resolving a conflict.
+    """
+    token = _read_token()
+    owner, repo, _ = _cfg()
+    files: dict = {}
+    if not token or not owner:
+        return files
+    h = _headers(token)
+    for path in paths:
+        p = path.lstrip("/")
+        try:
+            r = requests.get(f"{API}/repos/{owner}/{repo}/contents/{p}",
+                             headers=h, params={"ref": ref}, timeout=30)
+            if r.status_code == 200 and r.json().get("encoding") == "base64":
+                files[p] = base64.b64decode(r.json()["content"]).decode("utf-8")
+        except Exception:
+            pass  # missing on base or binary — skip
+    return files
+
+
+def resolve_branch_conflicts(branch: str, resolved_files: dict, token: str,
+                             author: dict, message: str) -> dict:
+    """Clear merge conflicts by creating a real merge commit on `branch`.
+
+    Builds a tree = latest base tree + the agent's resolved files overlaid, then
+    commits it with TWO parents (the branch head and the base head) and force-moves
+    the branch ref to it. Because base becomes an ancestor, GitHub then sees the PR
+    as mergeable. `resolved_files` should contain every file the branch owns (with
+    the agent's final, conflict-free content).
+
+    Returns {"ok": bool, "error"?: str, "commit"?: sha}.
+    """
+    owner, repo, base = _cfg()
+    if not token or not owner:
+        return {"ok": False, "error": "GitHub not configured."}
+    if not resolved_files:
+        return {"ok": False, "error": "No resolved files to commit."}
+    h = _headers(token)
+    try:
+        # Heads of base and the feature branch.
+        rb = requests.get(f"{API}/repos/{owner}/{repo}/git/ref/heads/{base}", headers=h, timeout=30)
+        rh = requests.get(f"{API}/repos/{owner}/{repo}/git/ref/heads/{branch}", headers=h, timeout=30)
+        if rb.status_code != 200 or rh.status_code != 200:
+            return {"ok": False, "error": f"Could not read refs ({rb.status_code}/{rh.status_code})."}
+        base_sha = rb.json()["object"]["sha"]
+        branch_sha = rh.json()["object"]["sha"]
+
+        # Base tree to overlay onto (so we keep everything that's new on base).
+        rc = requests.get(f"{API}/repos/{owner}/{repo}/git/commits/{base_sha}", headers=h, timeout=30)
+        if rc.status_code != 200:
+            return {"ok": False, "error": f"Could not read base commit: {rc.status_code}"}
+        base_tree = rc.json()["tree"]["sha"]
+
+        # Blob + tree entry for each resolved file.
+        tree_items = []
+        for path, content in resolved_files.items():
+            rbl = requests.post(f"{API}/repos/{owner}/{repo}/git/blobs", headers=h, timeout=60,
+                                json={"content": content, "encoding": "utf-8"})
+            if rbl.status_code not in (200, 201):
+                return {"ok": False, "error": f"Blob create failed for {path}: {rbl.status_code}"}
+            tree_items.append({"path": path.lstrip("/"), "mode": "100644",
+                               "type": "blob", "sha": rbl.json()["sha"]})
+
+        rt = requests.post(f"{API}/repos/{owner}/{repo}/git/trees", headers=h, timeout=60,
+                           json={"base_tree": base_tree, "tree": tree_items})
+        if rt.status_code not in (200, 201):
+            return {"ok": False, "error": f"Tree create failed: {rt.status_code} {rt.text[:150]}"}
+        new_tree = rt.json()["sha"]
+
+        rco = requests.post(f"{API}/repos/{owner}/{repo}/git/commits", headers=h, timeout=60,
+                            json={"message": message, "tree": new_tree,
+                                  "parents": [branch_sha, base_sha],
+                                  "author": author, "committer": author})
+        if rco.status_code not in (200, 201):
+            return {"ok": False, "error": f"Commit create failed: {rco.status_code} {rco.text[:150]}"}
+        new_commit = rco.json()["sha"]
+
+        ru = requests.patch(f"{API}/repos/{owner}/{repo}/git/refs/heads/{branch}", headers=h, timeout=30,
+                            json={"sha": new_commit, "force": True})
+        if ru.status_code not in (200, 201):
+            return {"ok": False, "error": f"Ref update failed: {ru.status_code} {ru.text[:150]}"}
+        logger.info("[GitHub] resolved conflicts on %s via merge commit %s", branch, new_commit[:7])
+        return {"ok": True, "commit": new_commit}
+    except Exception as e:
+        return {"ok": False, "error": f"resolve_branch_conflicts error: {e}"}
+
+
 def comment_on_pr(pr_number: int, token: str, body: str) -> bool:
     owner, repo, _ = _cfg()
     if not token or not owner:
