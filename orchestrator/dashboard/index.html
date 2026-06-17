@@ -393,6 +393,110 @@
       font-size: 14px; font-weight: 600;
     }
 
+    /* ─── GROUP CHAT ─────────────────────────────────────── */
+    #tab-content-group {
+      display: none; flex-direction: column;
+      /* fills remaining height between tabbar and bottom */
+      height: calc(100vh - 140px);
+    }
+    #tab-content-group.active-tab { display: flex; }
+
+    .group-header-strip {
+      flex-shrink: 0;
+      background: #075E54;
+      padding: 10px 14px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .group-avi-stack {
+      display: flex; flex-shrink: 0;
+    }
+    .group-avi-stack .mini-avi {
+      width: 22px; height: 22px; border-radius: 50%;
+      border: 1.5px solid #075E54;
+      margin-left: -6px; overflow: hidden; background: rgba(255,255,255,0.15);
+    }
+    .group-avi-stack .mini-avi:first-child { margin-left: 0; }
+    .group-avi-stack .mini-avi img { width: 100%; height: 100%; object-fit: cover; }
+    .group-info { flex: 1; }
+    .group-name { color: white; font-size: 15px; font-weight: 700; }
+    .group-members { color: rgba(255,255,255,0.65); font-size: 12px; }
+    .group-standup-btn {
+      background: rgba(255,255,255,0.15); border: none; color: white;
+      border-radius: 20px; padding: 6px 12px; font-size: 12px; font-weight: 600;
+      cursor: pointer; white-space: nowrap;
+    }
+
+    .group-messages {
+      flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      padding: 10px 12px 8px;
+      display: flex; flex-direction: column; gap: 4px;
+      background-color: var(--chat-wall);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Ccircle cx='40' cy='40' r='1.5' fill='%23c8bbae' opacity='0.35'/%3E%3C/svg%3E");
+    }
+    .group-messages::-webkit-scrollbar { display: none; }
+
+    /* group bubbles reuse .bubble but agent name is always shown */
+    .group-bubble-wrap {
+      display: flex; gap: 7px; align-items: flex-end;
+      max-width: 88%;
+    }
+    .group-bubble-wrap.mine { align-self: flex-end; flex-direction: row-reverse; }
+    .group-bubble-wrap.theirs { align-self: flex-start; }
+
+    .group-mini-avi {
+      width: 28px; height: 28px; border-radius: 50%;
+      overflow: hidden; flex-shrink: 0; background: #ddd;
+    }
+    .group-mini-avi img { width: 100%; height: 100%; object-fit: cover; }
+
+    .group-bubble {
+      padding: 7px 10px 22px;
+      border-radius: 12px; font-size: 14px; line-height: 1.45;
+      position: relative; word-break: break-word;
+      box-shadow: 0 1px 2px rgba(0,0,0,.12);
+    }
+    .group-bubble.mine {
+      background: var(--sent-bg); border-bottom-right-radius: 3px;
+    }
+    .group-bubble.mine::after {
+      content:''; position:absolute; bottom:0; right:-7px;
+      border-left: 7px solid var(--sent-bg); border-top: 7px solid transparent;
+    }
+    .group-bubble.theirs {
+      background: white; border-bottom-left-radius: 3px;
+    }
+    .group-bubble.theirs::after {
+      content:''; position:absolute; bottom:0; left:-7px;
+      border-right: 7px solid white; border-top: 7px solid transparent;
+    }
+    .group-sender-name {
+      font-size: 11.5px; font-weight: 700; margin-bottom: 3px;
+    }
+    .group-meta {
+      position:absolute; bottom:5px; right:9px;
+      font-size:10px; color:#8a9197; white-space:nowrap;
+    }
+    .group-ticks { color:#53BDEB; }
+
+    .group-input-bar {
+      flex-shrink: 0;
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px 24px;
+      background: #F0F0F0;
+    }
+    .group-input {
+      flex: 1; background: white; border: none; border-radius: 22px;
+      padding: 9px 14px; font-size: 15px; outline: none;
+      font-family: inherit;
+    }
+    .group-send-btn {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: var(--teal); border: none; color: white;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; flex-shrink: 0;
+    }
+    .group-send-btn svg { width: 20px; height: 20px; }
+
     /* ─── Section headers ────────────────────────────────── */
     .section-hd {
       font-size: 12px; font-weight: 700; color: var(--text-3);
@@ -402,6 +506,111 @@
 
     /* ─── Loading ────────────────────────────────────────── */
     .loading-row { padding: 20px; text-align: center; color: var(--text-3); font-size: 14px; }
+
+    /* ─── USAGE / COSTS screen ───────────────────────────── */
+    #tab-content-usage { z-index: 1; background: var(--bg); }
+
+    /* Budget card */
+    .budget-card {
+      margin: 16px; background: var(--surface); border-radius: 16px;
+      padding: 18px; box-shadow: 0 1px 6px rgba(0,0,0,.07);
+    }
+    .budget-top { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px; }
+    .budget-spend { font-size: 28px; font-weight: 800; color: var(--navy); }
+    .budget-spend .cur { font-size: 17px; font-weight: 700; color: var(--text-2); }
+    .budget-of { font-size: 13px; color: var(--text-2); }
+    .budget-label { font-size: 11px; font-weight: 700; letter-spacing:.6px; text-transform:uppercase; color: var(--text-3); margin-bottom: 12px; }
+    .budget-bar { height: 10px; background: var(--border); border-radius: 8px; overflow: hidden; }
+    .budget-fill { height: 100%; border-radius: 8px; transition: width .6s ease; background: linear-gradient(90deg, var(--teal), var(--teal-light)); }
+    .budget-fill.warn   { background: linear-gradient(90deg, #F9A825, #FBC02D); }
+    .budget-fill.danger { background: linear-gradient(90deg, #E53935, #EF5350); }
+    .budget-pct-row { display:flex; justify-content:space-between; margin-top:8px; font-size:12px; color: var(--text-2); }
+
+    /* Cost stat cards */
+    .cost-stats { display: flex; gap: 10px; padding: 0 16px; }
+    .cost-stat {
+      flex: 1; background: var(--surface); border-radius: 14px;
+      padding: 14px 10px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    }
+    .cost-stat-num { font-size: 19px; font-weight: 800; color: var(--navy); }
+    .cost-stat-lbl { font-size: 10.5px; color: var(--text-2); margin-top: 3px; }
+
+    /* Breakdown rows */
+    .usage-row {
+      display: flex; align-items: center; gap: 12px;
+      background: var(--surface); border-radius: 12px;
+      padding: 12px 14px; margin: 0 16px 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06);
+    }
+    .usage-avi { width: 36px; height: 36px; border-radius: 50%; overflow:hidden; flex-shrink:0; background:#ddd; }
+    .usage-avi img { width:100%; height:100%; object-fit:cover; }
+    .usage-row-body { flex: 1; min-width: 0; }
+    .usage-row-name { font-size: 14px; font-weight: 700; color: var(--text-1); }
+    .usage-row-sub  { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+    .usage-row-cost { font-size: 15px; font-weight: 800; color: var(--teal); flex-shrink: 0; }
+
+    .model-pill {
+      display:inline-block; font-size:10px; font-weight:700; color:#fff;
+      padding:2px 7px; border-radius:10px; background: var(--accent);
+    }
+    .model-pill.haiku  { background:#00897B; }
+    .model-pill.sonnet { background:#5E35B1; }
+    .model-pill.opus   { background:#C62828; }
+
+    /* Daily mini bar chart */
+    .daily-chart {
+      display:flex; align-items:flex-end; gap:4px;
+      height: 110px; padding: 12px 16px 0; margin: 0 16px;
+      background: var(--surface); border-radius: 14px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.07);
+      overflow-x: auto; scrollbar-width: none;
+    }
+    .daily-chart::-webkit-scrollbar { display:none; }
+    .daily-bar-wrap { display:flex; flex-direction:column; align-items:center; gap:4px; flex:1; min-width:18px; height:100%; justify-content:flex-end; }
+    .daily-bar { width: 70%; min-height:2px; border-radius:3px 3px 0 0; background: linear-gradient(180deg, var(--teal-light), var(--teal)); transition: height .5s; }
+    .daily-bar-lbl { font-size: 8.5px; color: var(--text-3); white-space:nowrap; }
+
+    /* ─── Run-a-ticket control ───────────────────────────── */
+    .run-card {
+      margin: 0 16px 8px; background: var(--surface); border-radius: 16px;
+      padding: 16px; box-shadow: 0 1px 6px rgba(0,0,0,.07);
+    }
+    .run-card-top { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .run-card-title { font-size: 14px; font-weight: 700; color: var(--text-1); }
+    .run-card-sub { font-size: 12px; color: var(--text-2); margin-top: 3px; }
+    .run-btn {
+      flex-shrink: 0; background: var(--teal); color: #fff; border: none;
+      border-radius: 22px; padding: 10px 16px; font-size: 13px; font-weight: 700;
+      cursor: pointer; transition: background .15s; font-family: inherit;
+    }
+    .run-btn:active { background: #00695C; }
+    .run-btn:disabled { background: #B0BEC5; cursor: not-allowed; }
+    .run-agent-select {
+      width: 100%; margin-top: 12px; padding: 9px 12px;
+      border: 1.5px solid var(--border); border-radius: 10px;
+      font-size: 13px; color: var(--text-1); background: var(--bg);
+      font-family: inherit; outline: none;
+    }
+    .run-result {
+      margin-top: 12px; padding: 12px 14px; border-radius: 12px;
+      font-size: 13px; line-height: 1.5; background: var(--bg);
+      border-left: 3px solid var(--teal);
+    }
+    .run-result.done   { background:#E8F5E9; border-left-color:#2E7D32; }
+    .run-result.early  { background:#FFF8E1; border-left-color:#F9A825; }
+    .run-result.err    { background:#FFEBEE; border-left-color:#E53935; }
+    .run-result-title  { font-weight: 700; margin-bottom: 4px; color: var(--text-1); }
+    .run-result-files  { margin-top: 8px; font-size: 11.5px; color: var(--text-2); }
+    .run-result-files code {
+      display:inline-block; background:rgba(0,0,0,.06); border-radius:5px;
+      padding:1px 6px; margin:2px 4px 0 0; font-size:11px;
+    }
+    .run-spinner {
+      display:inline-block; width:13px; height:13px; vertical-align:-2px;
+      border:2px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%;
+      animation: spin .8s linear infinite; margin-right:6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
@@ -425,11 +634,17 @@
     <button class="tab active" onclick="switchTab('chat')" id="tab-chat">
       <span class="icon">💬</span>Chat
     </button>
+    <button class="tab" onclick="switchTab('group')" id="tab-group">
+      <span class="icon">👥</span>Group
+    </button>
     <button class="tab" onclick="switchTab('activity')" id="tab-activity">
       <span class="icon">📊</span>Activity
     </button>
     <button class="tab" onclick="switchTab('tickets')" id="tab-tickets">
       <span class="icon">🎫</span>Tickets
+    </button>
+    <button class="tab" onclick="switchTab('usage')" id="tab-usage">
+      <span class="icon">💰</span>Costs
     </button>
   </div>
 
@@ -447,6 +662,35 @@
 
     <div class="section-hd">Your Team</div>
     <div id="convoList"></div>
+  </div>
+
+  <!-- ── Tab: Group Chat ───────────────────────────────── -->
+  <div id="tab-content-group">
+
+    <!-- Group header strip -->
+    <div class="group-header-strip">
+      <div class="group-avi-stack" id="groupAviStack"></div>
+      <div class="group-info">
+        <div class="group-name">RSE Intelligence Team</div>
+        <div class="group-members">Aria, Marcus, Kwame, Sofia, Priya, Luca + you</div>
+      </div>
+      <button class="group-standup-btn" onclick="triggerStandup()">🌅 Stand-up</button>
+    </div>
+
+    <!-- Messages -->
+    <div class="group-messages" id="groupMessages">
+      <div class="msg-date-pill">Today</div>
+      <div class="sys-notice">Welcome to RSE Intelligence Team 👋 Daily stand-ups posted here at 08:00 every morning.</div>
+    </div>
+
+    <!-- Input -->
+    <div class="group-input-bar">
+      <input class="group-input" id="groupInput" placeholder="Message team…"
+             onkeydown="if(event.key==='Enter')sendGroupMessage()">
+      <button class="group-send-btn" onclick="sendGroupMessage()">
+        <svg viewBox="0 0 24 24" fill="white"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+      </button>
+    </div>
   </div>
 
   <!-- ── Tab: Activity ─────────────────────────────────── -->
@@ -470,11 +714,67 @@
       <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
     </div>
 
+    <!-- Run-a-ticket control -->
+    <div class="run-card">
+      <div class="run-card-top">
+        <div>
+          <div class="run-card-title">Put an agent to work</div>
+          <div class="run-card-sub" id="nextTicketLabel">Checking the backlog…</div>
+        </div>
+        <button class="run-btn" id="runTicketBtn" onclick="runNextTicket()">▶ Run next ticket</button>
+      </div>
+      <select class="run-agent-select" id="runAgentSelect" onchange="refreshNextTicket()">
+        <option value="">Auto — next unblocked ticket</option>
+        <option value="backend-ai-dev">Kwame — Backend &amp; AI</option>
+        <option value="mobile-frontend-dev">Sofia — Mobile &amp; Frontend</option>
+        <option value="deployment">Luca — DevOps</option>
+      </select>
+      <div class="run-result" id="runResult" style="display:none;"></div>
+    </div>
+
     <div class="section-hd">PR Queue — Awaiting Your Approval</div>
     <div id="prQueueSection"><div class="loading-row">Loading…</div></div>
 
     <div class="section-hd">All Tickets</div>
     <div class="tickets-list" id="ticketsList"><div class="loading-row">Loading…</div></div>
+  </div>
+
+  <!-- ── Tab: Usage / Costs ────────────────────────────── -->
+  <div id="tab-content-usage" class="scroll-area" style="display:none;">
+
+    <!-- Monthly budget card -->
+    <div class="budget-card">
+      <div class="budget-label">Claude API · This Month</div>
+      <div class="budget-top">
+        <div class="budget-spend"><span class="cur">$</span><span id="budgetSpend">0.00</span></div>
+        <div class="budget-of">of $<span id="budgetLimit">20.00</span> budget</div>
+      </div>
+      <div class="budget-bar"><div class="budget-fill" id="budgetFill" style="width:0%"></div></div>
+      <div class="budget-pct-row">
+        <span id="budgetPctLabel">0% used</span>
+        <span id="budgetRemaining">$20.00 left</span>
+      </div>
+    </div>
+
+    <!-- Totals (last N days) -->
+    <div class="section-hd">Last 30 Days</div>
+    <div class="cost-stats">
+      <div class="cost-stat"><div class="cost-stat-num" id="costCalls">—</div><div class="cost-stat-lbl">API Calls</div></div>
+      <div class="cost-stat"><div class="cost-stat-num" id="costTokens">—</div><div class="cost-stat-lbl">Tokens</div></div>
+      <div class="cost-stat"><div class="cost-stat-num" id="costTotal">—</div><div class="cost-stat-lbl">Total Cost</div></div>
+    </div>
+
+    <!-- Daily chart -->
+    <div class="section-hd">Daily Spend</div>
+    <div class="daily-chart" id="dailyChart"><div class="loading-row">Loading…</div></div>
+
+    <!-- Per agent -->
+    <div class="section-hd">Cost by Agent</div>
+    <div id="usageByAgent"><div class="loading-row">Loading…</div></div>
+
+    <!-- Per model -->
+    <div class="section-hd">Cost by Model</div>
+    <div id="usageByModel" style="padding-bottom:20px;"><div class="loading-row">Loading…</div></div>
   </div>
 
 </div>
@@ -700,24 +1000,133 @@ function scrollToBottom() {
   requestAnimationFrame(() => { box.scrollTop = box.scrollHeight; });
 }
 
+// ── Group chat ─────────────────────────────────────────────
+function buildGroupAvis() {
+  const stack = document.getElementById('groupAviStack');
+  if (!stack) return;
+  stack.innerHTML = AGENTS.slice(0,5).map(a =>
+    `<div class="mini-avi"><img src="${avatar(a.seed, a.color)}" alt="${a.name}" onerror="this.style.display='none'"></div>`
+  ).join('');
+}
+
+async function loadGroupMessages() {
+  try {
+    const resp = await fetch(`${API}/api/group/messages?limit=60`);
+    const data = await resp.json();
+    if (!data.messages?.length) return;
+    const box = document.getElementById('groupMessages');
+    // Keep the welcome notice, append loaded messages
+    data.messages.forEach(m => appendGroupBubble(m.is_richard, m.sender, m.content, m.timestamp));
+    box.scrollTop = box.scrollHeight;
+  } catch { /* server may not have DB yet — silent */ }
+}
+
+function appendGroupBubble(isMine, sender, text, ts) {
+  const box = document.getElementById('groupMessages');
+  const agent = isMine ? null : AGENTS.find(a => a.id === sender);
+  const t = ts ? new Date(ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : now();
+
+  const wrap = document.createElement('div');
+  wrap.className = 'group-bubble-wrap ' + (isMine ? 'mine' : 'theirs');
+
+  if (!isMine && agent) {
+    const miniAvi = document.createElement('div');
+    miniAvi.className = 'group-mini-avi';
+    miniAvi.innerHTML = `<img src="${avatar(agent.seed, agent.color)}" alt="${agent.name}" onerror="this.style.display='none'">`;
+    wrap.appendChild(miniAvi);
+  }
+
+  const bubble = document.createElement('div');
+  bubble.className = 'group-bubble ' + (isMine ? 'mine' : 'theirs');
+  if (!isMine && agent) {
+    bubble.innerHTML = `<div class="group-sender-name" style="color:${agent.color};">${agent.name}</div>`;
+  } else if (!isMine) {
+    bubble.innerHTML = `<div class="group-sender-name" style="color:#555;">${sender}</div>`;
+  }
+  bubble.innerHTML += esc(text);
+  bubble.innerHTML += `<div class="group-meta">${t}${isMine ? ' <span class="group-ticks">✓✓</span>' : ''}</div>`;
+  wrap.appendChild(bubble);
+  box.appendChild(wrap);
+  box.scrollTop = box.scrollHeight;
+}
+
+function appendGroupTyping(agentCount) {
+  const box = document.getElementById('groupMessages');
+  const div = document.createElement('div');
+  div.id = 'group-typing';
+  div.className = 'sys-notice';
+  div.textContent = agentCount > 1 ? 'Team is responding…' : 'Responding…';
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+async function sendGroupMessage() {
+  const input = document.getElementById('groupInput');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+
+  appendGroupBubble(true, 'richard', text, null);
+  appendGroupTyping(2);
+
+  try {
+    const resp = await fetch(`${API}/api/group/message`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ message: text, sender: 'richard' }),
+    });
+    const data = await resp.json();
+    document.getElementById('group-typing')?.remove();
+    (data.posts || []).forEach(p => appendGroupBubble(false, p.sender, p.content, p.timestamp));
+  } catch {
+    document.getElementById('group-typing')?.remove();
+    appendGroupBubble(false, 'coordinator', '⚠️ Could not reach the orchestrator.', null);
+  }
+}
+
+async function triggerStandup() {
+  const btn = document.querySelector('.group-standup-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Posting…'; }
+  appendGroupBubble(false, 'system', '🌅 Daily stand-up triggered — each agent posting their update…', null);
+
+  try {
+    const resp = await fetch(`${API}/api/group/standup`, { method: 'POST' });
+    const data = await resp.json();
+    (data.posts || []).forEach(p => appendGroupBubble(false, p.sender, p.content, null));
+  } catch {
+    appendGroupBubble(false, 'coordinator', '⚠️ Could not trigger stand-up.', null);
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '🌅 Stand-up'; }
+}
+
 // ── Tab switching ──────────────────────────────────────────
 function switchTab(name) {
-  ['chat','activity','tickets'].forEach(t => {
-    document.getElementById('tab-content-' + t).style.display = t === name ? '' : 'none';
-    document.getElementById('tab-' + t).classList.toggle('active', t === name);
+  ['chat','group','activity','tickets','usage'].forEach(t => {
+    const el = document.getElementById('tab-content-' + t);
+    if (!el) return;
+    if (t === 'group') {
+      el.classList.toggle('active-tab', t === name);
+    } else {
+      el.style.display = t === name ? '' : 'none';
+    }
+    document.getElementById('tab-' + t)?.classList.toggle('active', t === name);
   });
   if (name === 'activity') loadActivity();
   if (name === 'tickets')  loadTickets();
+  if (name === 'group') { loadGroupMessages(); }
+  if (name === 'usage')  loadUsage();
 }
 
 // ── Activity ───────────────────────────────────────────────
 const ACT_ICONS = {
   message:'💬', ticket_created:'🎫', pr_reviewed:'🔍',
   deploy:'🚀', digest_sent:'📨', blocker_alert:'⚠️', blocker_check:'✅',
+  ticket_started:'🛠️', ticket_completed:'✅', ticket_paused:'⏸️', pr_opened:'🔀',
 };
 const ACT_BG = {
   message:'#EEF4FB', ticket_created:'#FFF3E0', pr_reviewed:'#E3F2FD',
   deploy:'#E8F5E9', digest_sent:'#F3E5F5', blocker_alert:'#FFEBEE', blocker_check:'#E8F5E9',
+  ticket_started:'#E3F2FD', ticket_completed:'#E8F5E9', ticket_paused:'#FFF8E1', pr_opened:'#F3E5F5',
 };
 
 async function loadActivity() {
@@ -780,10 +1189,190 @@ async function loadTickets() {
     const prResp = await fetch(`${API}/api/pr-queue`);
     const prData = await prResp.json();
     document.getElementById('prQueueSection').innerHTML = (prData.prs?.length)
-      ? prData.prs.map(pr => `<div class="ticket-card">…</div>`).join('')
+      ? prData.prs.map(pr => {
+          const agent = AGENTS.find(a => a.name === pr.agent);
+          const color = agent ? agent.color : 'var(--accent)';
+          return `<div class="ticket-card">
+            <div class="ticket-check done">🔍</div>
+            <div class="ticket-body">
+              <div class="ticket-id" style="color:${color};">${esc(pr.id)} · ${esc(pr.agent)}</div>
+              <div class="ticket-title-text">${esc(pr.title)}</div>
+              <div class="ticket-owner-tag">${esc(pr.summary)}</div>
+            </div>
+          </div>`;
+        }).join('')
       : `<div class="pr-empty">✅ No PRs awaiting your approval</div>`;
+
+    // Refresh the "next ticket" label
+    refreshNextTicket();
   } catch {
     document.getElementById('ticketsList').innerHTML = '<div class="loading-row">⚠️ Could not load tickets.</div>';
+  }
+}
+
+// ── Run a ticket (agents actually implement) ───────────────
+async function refreshNextTicket() {
+  const sel = document.getElementById('runAgentSelect');
+  const label = document.getElementById('nextTicketLabel');
+  if (!sel || !label) return;
+  try {
+    const resp = await fetch(`${API}/api/next-ticket?agent=${encodeURIComponent(sel.value)}`);
+    const data = await resp.json();
+    if (data.ticket) {
+      const blocked = data.ticket.blocked_by?.length ? ` · needs ${data.ticket.blocked_by.join(', ')}` : '';
+      label.textContent = `Next: ${data.ticket.id} — ${data.ticket.title}${blocked}`;
+    } else {
+      label.textContent = data.message || 'No eligible ticket right now.';
+    }
+  } catch {
+    label.textContent = 'Could not reach the orchestrator.';
+  }
+}
+
+async function runNextTicket() {
+  const btn = document.getElementById('runTicketBtn');
+  const sel = document.getElementById('runAgentSelect');
+  const box = document.getElementById('runResult');
+  if (!btn || isSending) return;
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="run-spinner"></span>Working…';
+  box.style.display = 'block';
+  box.className = 'run-result';
+  box.innerHTML = '<div class="run-result-title">Agent is implementing the ticket…</div>This can take a minute or two — the agent is exploring the repo and writing files.';
+
+  try {
+    const resp = await fetch(`${API}/api/agents/run-ticket`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ agent: sel.value }),
+    });
+    const d = await resp.json();
+
+    if (d.status === 'completed' || d.status === 'stopped_early') {
+      box.className = 'run-result ' + (d.status === 'completed' ? 'done' : 'early');
+      const title = d.status === 'completed'
+        ? `✅ ${d.agent_display_name || d.agent_name} finished ${d.ticket_id}`
+        : `⏸️ ${d.agent_display_name || d.agent_name} paused on ${d.ticket_id}`;
+      const files = (d.files_changed || []).map(f => `<code>${esc(f)}</code>`).join('');
+      box.innerHTML = `<div class="run-result-title">${esc(title)}</div>${esc(d.summary || '')}
+        ${files ? `<div class="run-result-files">Files: ${files}</div>` : ''}
+        <div class="run-result-files">Cost: $${(d.cost_usd ?? 0).toFixed(4)}</div>`;
+      loadTickets();  // refresh progress, ticket list, PR queue
+    } else {
+      box.className = 'run-result err';
+      box.innerHTML = `<div class="run-result-title">Couldn't run a ticket</div>${esc(d.message || d.status || 'Unknown error.')}`;
+    }
+  } catch {
+    box.className = 'run-result err';
+    box.innerHTML = '<div class="run-result-title">Request failed</div>The agent loop can run long — if it timed out, check the Activity tab; it may still have finished.';
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '▶ Run next ticket';
+  refreshNextTicket();
+}
+
+// ── Usage / Costs ──────────────────────────────────────────
+function fmtMoney(n) {
+  n = Number(n) || 0;
+  return n < 1 ? '$' + n.toFixed(3) : '$' + n.toFixed(2);
+}
+function fmtTokens(n) {
+  n = Number(n) || 0;
+  if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
+  return String(n);
+}
+function modelClass(m) {
+  m = (m || '').toLowerCase();
+  if (m.includes('haiku'))  return 'haiku';
+  if (m.includes('sonnet')) return 'sonnet';
+  if (m.includes('opus'))   return 'opus';
+  return '';
+}
+function modelShort(m) {
+  m = (m || '').toLowerCase();
+  if (m.includes('haiku'))  return 'Haiku';
+  if (m.includes('sonnet')) return 'Sonnet';
+  if (m.includes('opus'))   return 'Opus';
+  if (m === 'none') return 'No key';
+  return m || 'unknown';
+}
+
+async function loadUsage() {
+  try {
+    const resp = await fetch(`${API}/api/usage?days=30`);
+    const d = await resp.json();
+
+    // Budget card
+    const spend  = Number(d.monthly_spend_usd) || 0;
+    const budget = Number(d.monthly_budget_usd) || 20;
+    const pct    = budget ? Math.min(spend / budget * 100, 100) : 0;
+    document.getElementById('budgetSpend').textContent = spend.toFixed(2);
+    document.getElementById('budgetLimit').textContent = budget.toFixed(2);
+    document.getElementById('budgetPctLabel').textContent = (budget ? (spend/budget*100).toFixed(0) : 0) + '% used';
+    document.getElementById('budgetRemaining').textContent = '$' + Math.max(budget - spend, 0).toFixed(2) + ' left';
+    const fill = document.getElementById('budgetFill');
+    fill.style.width = pct + '%';
+    fill.className = 'budget-fill' + (pct >= 100 ? ' danger' : pct >= 80 ? ' warn' : '');
+
+    // Totals
+    const totals = d.totals || {};
+    document.getElementById('costCalls').textContent  = totals.calls ?? 0;
+    document.getElementById('costTokens').textContent = fmtTokens((totals.input_tokens || 0) + (totals.output_tokens || 0));
+    document.getElementById('costTotal').textContent  = fmtMoney(totals.cost_usd);
+
+    // Daily chart
+    const daily = d.daily || [];
+    const chart = document.getElementById('dailyChart');
+    if (!daily.length) {
+      chart.innerHTML = '<div class="loading-row">No spend recorded yet.</div>';
+    } else {
+      const max = Math.max(...daily.map(x => Number(x.cost_usd) || 0), 0.0001);
+      chart.innerHTML = daily.map(x => {
+        const h = Math.max((Number(x.cost_usd) || 0) / max * 84, 2);
+        const lbl = (x.date || '').slice(5); // MM-DD
+        return `<div class="daily-bar-wrap" title="${x.date}: ${fmtMoney(x.cost_usd)}">
+                  <div class="daily-bar" style="height:${h}px;"></div>
+                  <div class="daily-bar-lbl">${lbl}</div>
+                </div>`;
+      }).join('');
+    }
+
+    // Per agent
+    const byAgent = d.per_agent || [];
+    const agentBox = document.getElementById('usageByAgent');
+    agentBox.innerHTML = byAgent.length ? byAgent.map(r => {
+      const agent = AGENTS.find(a => a.id === r.agent_name);
+      const name  = agent ? agent.name : (r.agent_name || 'unknown').replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+      const avi   = agent ? `<div class="usage-avi"><img src="${avatar(agent.seed, agent.color)}" onerror="this.style.display='none'"></div>` : '';
+      const toks  = (Number(r.input_tokens)||0) + (Number(r.output_tokens)||0);
+      return `<div class="usage-row">
+                ${avi}
+                <div class="usage-row-body">
+                  <div class="usage-row-name">${esc(name)}</div>
+                  <div class="usage-row-sub">${r.calls || 0} calls · ${fmtTokens(toks)} tokens</div>
+                </div>
+                <div class="usage-row-cost">${fmtMoney(r.cost_usd)}</div>
+              </div>`;
+    }).join('') : '<div class="loading-row">No agent usage yet.</div>';
+
+    // Per model
+    const byModel = d.per_model || [];
+    const modelBox = document.getElementById('usageByModel');
+    modelBox.innerHTML = byModel.length ? byModel.map(r => `
+      <div class="usage-row">
+        <div class="usage-row-body">
+          <div class="usage-row-name"><span class="model-pill ${modelClass(r.model)}">${esc(modelShort(r.model))}</span></div>
+          <div class="usage-row-sub">${r.calls || 0} calls</div>
+        </div>
+        <div class="usage-row-cost">${fmtMoney(r.cost_usd)}</div>
+      </div>`).join('') : '<div class="loading-row">No model usage yet.</div>';
+
+  } catch {
+    document.getElementById('usageByAgent').innerHTML = '<div class="loading-row">⚠️ Could not load usage data.</div>';
+    document.getElementById('dailyChart').innerHTML = '';
   }
 }
 
@@ -819,6 +1408,7 @@ function timeAgo(d) {
 
 // ── Init ───────────────────────────────────────────────────
 buildConvoList();
+buildGroupAvis();
 checkHealth();
 setInterval(checkHealth, 30000);
 </script>

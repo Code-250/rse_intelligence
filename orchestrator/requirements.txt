@@ -5,3 +5,4 @@ python-dotenv>=1.0.1
 requests>=2.32.0
 schedule>=1.2.2
 pydantic>=2.7.0
+anthropic>=0.40.0

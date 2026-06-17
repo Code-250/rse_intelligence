@@ -30,6 +30,8 @@ from orchestrator.agents.runner import (
     resolve_agent,
     run_agent,
 )
+from orchestrator.agents.claude_runner import run_claude
+from orchestrator.db.usage import init_usage_table, get_usage_breakdown
 from orchestrator.channels.whatsapp import (
     META_VERIFY_TOKEN,
     parse_inbound_message,
@@ -65,6 +67,7 @@ async def lifespan(app: FastAPI):
     """Startup: init DB and start background scheduler."""
     logger.info("RSE Intelligence Orchestrator starting...")
     init_db()
+    init_usage_table()
     run_scheduler()
     logger.info("Orchestrator ready")
     yield
@@ -145,13 +148,161 @@ async def chat(req: ChatRequest):
     get_or_create_session(session_id, channel="web", agent_name=agent_name)
     history = get_conversation_history(session_id)
 
-    response = run_agent(agent_name, req.message, history)
+    # Use Claude if API key is set, fall back to NIM otherwise
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if anthropic_key:
+        response, _usage = run_claude(agent_name, req.message, history)
+    else:
+        response = run_agent(agent_name, req.message, history)
 
     save_message(session_id, "user",      agent_name, req.message)
     save_message(session_id, "assistant", agent_name, response)
     log_activity(agent_name, "message", f"Chat: {req.message[:80]}")
 
     return ChatResponse(response=response, agent_name=agent_name, session_id=session_id)
+
+
+# ── Group Chat API ────────────────────────────────────────────────────────────
+
+GROUP_SESSION = "group:rse-intelligence-team"
+
+class GroupMessage(BaseModel):
+    message: str
+    sender: str = "richard"   # "richard" or an agent_name
+
+
+class GroupPost(BaseModel):
+    sender: str
+    agent_name: str | None   # None when sender is Richard
+    content: str
+    timestamp: str
+
+
+@app.post("/api/group/message", tags=["group"])
+async def group_message(req: GroupMessage):
+    """
+    Post a message to the RSE Intelligence team group.
+
+    When Richard posts, the Coordinator decides which agents should respond
+    (could be one, could be several). Each responding agent posts a reply.
+
+    When an agent posts (used by scheduler for stand-ups), it's stored directly.
+    """
+    import asyncio
+    from datetime import datetime, timezone
+    from orchestrator.agents.runner import AGENT_NAMES
+
+    ts = datetime.now(timezone.utc).isoformat()
+    posts = []
+
+    if req.sender == "richard":
+        # Save Richard's message to group history
+        save_message(GROUP_SESSION, "user", "richard", req.message)
+        log_activity("coordinator", "message", f"Group: Richard — {req.message[:80]}")
+
+        # Ask Coordinator which agents should respond and what they'd say
+        coord_prompt = (
+            f"Richard posted this to the RSE Intelligence team group: \"{req.message}\"\n\n"
+            "Decide which team members should respond. "
+            "You can respond yourself and/or ask 1-2 others to chime in. "
+            "Reply in this exact JSON format (no other text):\n"
+            '[\n'
+            '  {"agent": "coordinator", "message": "your response here"},\n'
+            '  {"agent": "project-manager", "message": "marcus response if relevant"}\n'
+            ']\n'
+            "Only include agents whose input is genuinely relevant. Maximum 3 agents."
+        )
+        group_history = get_conversation_history(GROUP_SESSION, limit=10)
+        raw = run_agent("coordinator", coord_prompt, group_history)
+
+        # Parse JSON responses
+        import json, re
+        try:
+            match = re.search(r'\[.*?\]', raw, re.DOTALL)
+            responses = json.loads(match.group(0)) if match else []
+        except Exception:
+            responses = [{"agent": "coordinator", "message": raw}]
+
+        for r in responses[:3]:
+            agent_name = resolve_agent(r.get("agent", "coordinator"))
+            content = r.get("message", "").strip()
+            if not content:
+                continue
+            save_message(GROUP_SESSION, "assistant", agent_name, content)
+            log_activity(agent_name, "message", f"Group reply: {content[:80]}")
+            posts.append({"sender": agent_name, "content": content, "timestamp": ts})
+
+    else:
+        # An agent is posting directly (e.g. scheduler posting stand-up)
+        agent_name = resolve_agent(req.sender)
+        save_message(GROUP_SESSION, "assistant", agent_name, req.message)
+        log_activity(agent_name, "message", f"Group post: {req.message[:80]}")
+        posts.append({"sender": agent_name, "content": req.message, "timestamp": ts})
+
+    return {"posts": posts}
+
+
+@app.get("/api/group/messages", tags=["group"])
+async def group_messages(limit: int = Query(50, ge=1, le=200)):
+    """Return recent group messages for the dashboard group chat view."""
+    from datetime import datetime, timezone
+
+    history = get_conversation_history(GROUP_SESSION, limit=limit)
+    # history is [{role, content}] — we need to re-fetch with agent names
+    # Pull from DB with full metadata
+    if not db_available():
+        return {"messages": [], "note": "Database not connected"}
+
+    from orchestrator.db.activity import get_conn
+    from psycopg2.extras import RealDictCursor
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("""
+        SELECT role, agent_name, content, created_at
+        FROM orch_messages
+        WHERE session_key = %s
+        ORDER BY created_at ASC
+        LIMIT %s
+    """, (GROUP_SESSION, limit))
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
+
+    messages = []
+    for r in rows:
+        messages.append({
+            "sender":     "richard" if r["role"] == "user" else r["agent_name"],
+            "is_richard": r["role"] == "user",
+            "content":    r["content"],
+            "timestamp":  r["created_at"].isoformat() if r["created_at"] else "",
+        })
+    return {"messages": messages}
+
+
+@app.post("/api/group/standup", tags=["group"])
+async def trigger_standup():
+    """
+    Manually trigger a stand-up — each agent posts a brief update to the group.
+    The scheduler calls this automatically at 08:00 daily.
+    """
+    from datetime import datetime, timezone
+    from orchestrator.agents.runner import AGENT_NAMES
+
+    today = datetime.now(timezone.utc).strftime("%A, %d %B %Y")
+    posts = []
+
+    for agent_name in AGENT_NAMES:
+        prompt = (
+            f"Today is {today}. Post your daily stand-up update to the RSE Intelligence team group. "
+            "Keep it to 2-3 sentences max. Cover: what you did yesterday, what you're doing today, any blockers. "
+            "Write as yourself — your name, your voice. No headers, no lists. Just a brief natural message "
+            "like you'd send in a team group chat."
+        )
+        response = run_agent(agent_name, prompt, [])
+        save_message(GROUP_SESSION, "assistant", agent_name, response)
+        log_activity(agent_name, "message", f"Stand-up: {response[:80]}")
+        posts.append({"sender": agent_name, "content": response})
+
+    return {"posts": posts, "date": today}
 
 
 # ── Activity feed ─────────────────────────────────────────────────────────────
@@ -199,13 +350,87 @@ async def tickets():
     return {"tickets": parsed, "raw": content}
 
 
+@app.get("/api/usage", tags=["dashboard"])
+async def usage(days: int = Query(30, ge=1, le=90)):
+    """
+    Claude API usage breakdown for the dashboard.
+    Returns per-agent costs, model breakdown, daily chart data,
+    monthly spend vs budget, and totals.
+    """
+    return get_usage_breakdown(days=days)
+
+
+class RunTicketRequest(BaseModel):
+    agent: str = ""   # empty = auto-pick the highest-priority unblocked ticket
+
+
+@app.get("/api/next-ticket", tags=["agents"])
+async def next_ticket(agent: str = Query("", description="Agent name/alias, or empty to auto-pick")):
+    """Preview which ticket an agent would pick up next, without running it."""
+    from orchestrator.agents.executor import get_next_ticket
+    agent_name = resolve_agent(agent) if agent else None
+    ticket = get_next_ticket(agent_name)
+    if not ticket:
+        return {"ticket": None, "message": "No eligible ticket — all done, in progress, or blocked."}
+    return {"ticket": {"id": ticket["id"], "title": ticket["title"], "owner": ticket["owner_kw"], "blocked_by": ticket["blocked_by"]}}
+
+
+@app.post("/api/agents/run-ticket", tags=["agents"])
+async def run_ticket(req: RunTicketRequest):
+    """
+    Have an agent actually implement its next ticket.
+
+    The assigned engineer (Kwame / Sofia / Luca) runs an agentic tool-use loop:
+    explores the repo, writes real code files, optionally runs tests, then marks
+    the ticket done and adds a PR-queue entry. Every Claude turn is metered into
+    the usage tracker. Pass an empty agent to auto-pick the next unblocked ticket.
+
+    This can take a while (the agent writes multiple files), so call with a long
+    client timeout.
+    """
+    import anyio
+    from orchestrator.agents.executor import implement_next_ticket
+
+    agent_name = resolve_agent(req.agent) if req.agent else None
+    # Run the blocking loop in a worker thread so the event loop stays responsive
+    result = await anyio.to_thread.run_sync(implement_next_ticket, agent_name)
+    return result
+
+
 @app.get("/api/pr-queue", tags=["dashboard"])
 async def pr_queue():
-    """Read PR queue for the dashboard."""
+    """Read PR queue for the dashboard and parse the 'Awaiting Approval' table into structured PRs."""
     pr_file = Path(__file__).parents[1] / "products" / "financial-doc-analyzer" / "tickets" / "PR_QUEUE.md"
     if not pr_file.exists():
         return {"content": "No PRs yet.", "prs": []}
-    return {"content": pr_file.read_text(encoding="utf-8"), "prs": []}
+
+    content = pr_file.read_text(encoding="utf-8")
+
+    # Parse rows from the 'Awaiting Richard's Approval' table only (stop at next ## section)
+    prs = []
+    in_awaiting = False
+    for line in content.splitlines():
+        if line.startswith("## "):
+            in_awaiting = "Awaiting" in line
+            continue
+        if not in_awaiting:
+            continue
+        s = line.strip()
+        if not s.startswith("|") or s.startswith("|---") or s.startswith("| PR #"):
+            continue
+        cells = [c.strip() for c in s.strip("|").split("|")]
+        if len(cells) < 6 or cells[0] in ("—", ""):
+            continue
+        prs.append({
+            "id":      cells[0],
+            "title":   cells[1],
+            "agent":   cells[2],
+            "risk":    cells[3],
+            "opened":  cells[4],
+            "summary": cells[5],
+        })
+
+    return {"content": content, "prs": prs}
 
 
 # ── WhatsApp Webhook ──────────────────────────────────────────────────────────
