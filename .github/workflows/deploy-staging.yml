@@ -1,0 +1,13 @@
+name: Deploy to Staging
+on:
+  push:
+    branches:
+      - main
+jobs:
+  deploy-staging:
+    steps:
+      - run migrations (alembic upgrade head) on staging DB
+      - deploy backend to Railway staging environment
+      - run smoke tests (see below)
+      - build mobile app for TestFlight / Internal Testing
+      - post result to Slack/WhatsApp
