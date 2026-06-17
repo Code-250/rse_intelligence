@@ -349,14 +349,15 @@ TOOLS = [
     },
     {
         "name": "finish",
-        "description": "Call this when the ticket is fully implemented and you have verified it against the acceptance criteria. Provide a concise summary of what you built and the list of files you created or changed.",
+        "description": "Call this when the ticket is fully implemented AND you have verified it (run tests with run_command first). Provide a summary, the files changed, and exactly how you tested it.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "summary": {"type": "string", "description": "2-4 sentence summary of what was implemented and how it meets the acceptance criteria"},
                 "files_changed": {"type": "array", "items": {"type": "string"}, "description": "Repo-relative paths of files created or modified"},
+                "how_tested": {"type": "string", "description": "Exactly how you verified the work: commands you ran (e.g. `pytest`), their results, endpoints exercised, or why testing wasn't possible. Be specific and honest."},
             },
-            "required": ["summary", "files_changed"],
+            "required": ["summary", "files_changed", "how_tested"],
         },
     },
 ]
@@ -391,10 +392,16 @@ def _build_executor_system_prompt(agent_name: str, ticket: dict) -> str:
         f"products/, shared/, and .github/ only).\n"
         f"- The product backend lives in products/financial-doc-analyzer/backend, mobile in "
         f"products/financial-doc-analyzer/mobile, shared libs in shared/.\n"
-        f"- Implement EVERY acceptance criterion in the ticket. Include tests where the ticket asks for them.\n"
-        f"- Optionally run_command (e.g. pytest) to sanity-check, but don't block on a missing toolchain.\n"
-        f"- When everything is done and matches the acceptance criteria, call finish() with a summary "
-        f"and the list of files you changed. Do not call finish until the work is complete.\n"
+        f"- Implement EVERY acceptance criterion in the ticket. Always include tests (pytest for "
+        f"backend, jest for mobile/web) — the ticket is not done without them.\n"
+        f"- VERIFY before finishing: use run_command to run the tests you wrote (e.g. `pytest -q` from "
+        f"the backend dir). If the toolchain is missing, note that honestly in how_tested. CI will also "
+        f"run tests and build a web preview screenshot on the PR.\n"
+        f"- Follow PR best practices: write small, focused, complete files and clear code so the preview "
+        f"and review go smoothly.\n"
+        f"- When everything is done and verified, call finish() with: a summary, the list of files you "
+        f"changed, and how_tested (the exact commands you ran and their results, or why you couldn't). "
+        f"Do not call finish until the work is complete and tested.\n"
         f"Keep going autonomously — do not ask questions. Make reasonable engineering decisions and proceed."
     )
 
@@ -455,6 +462,7 @@ def _run_loop_anthropic(client, agent_name: str, ticket: dict, system_prompt: st
     files_changed: list[str] = []
     written_files: dict[str, str] = {}
     finish_summary = ""
+    how_tested = ""
     finished = False
 
     for iteration in range(1, MAX_ITERATIONS + 1):
@@ -488,6 +496,7 @@ def _run_loop_anthropic(client, agent_name: str, ticket: dict, system_prompt: st
             res, is_finish, fargs = _apply_tool(block.name, block.input or {}, files_changed, written_files)
             if is_finish:
                 finish_summary = fargs.get("summary", "")
+                how_tested = fargs.get("how_tested", "")
                 files_changed[:] = fargs.get("files_changed", []) or files_changed
                 finished = True
             tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": res})
@@ -499,8 +508,9 @@ def _run_loop_anthropic(client, agent_name: str, ticket: dict, system_prompt: st
             logger.warning("[Executor] Cost cap hit on %s ($%.2f)", ticket["id"], total_cost)
             break
 
-    return {"finished": finished, "finish_summary": finish_summary, "files_changed": files_changed,
-            "written_files": written_files, "total_cost": total_cost, "error": None}
+    return {"finished": finished, "finish_summary": finish_summary, "how_tested": how_tested,
+            "files_changed": files_changed, "written_files": written_files,
+            "total_cost": total_cost, "error": None}
 
 
 def _nim_chat(messages: list, tools: list):
@@ -538,6 +548,7 @@ def _run_loop_nim(agent_name: str, ticket: dict, system_prompt: str) -> dict:
     files_changed: list[str] = []
     written_files: dict[str, str] = {}
     finish_summary = ""
+    how_tested = ""
     finished = False
 
     for iteration in range(1, MAX_ITERATIONS + 1):
@@ -572,6 +583,7 @@ def _run_loop_nim(agent_name: str, ticket: dict, system_prompt: str) -> dict:
             res, is_finish, fargs = _apply_tool(name, args, files_changed, written_files)
             if is_finish:
                 finish_summary = fargs.get("summary", "")
+                how_tested = fargs.get("how_tested", "")
                 files_changed[:] = fargs.get("files_changed", []) or files_changed
                 finished = True
             messages.append({"role": "tool", "tool_call_id": tc.get("id", ""), "content": res})
@@ -579,8 +591,9 @@ def _run_loop_nim(agent_name: str, ticket: dict, system_prompt: str) -> dict:
         if finished:
             break
 
-    return {"finished": finished, "finish_summary": finish_summary, "files_changed": files_changed,
-            "written_files": written_files, "total_cost": 0.0, "error": None}
+    return {"finished": finished, "finish_summary": finish_summary, "how_tested": how_tested,
+            "files_changed": files_changed, "written_files": written_files,
+            "total_cost": 0.0, "error": None}
 
 
 def implement_next_ticket(agent_name: Optional[str] = None) -> dict:
@@ -668,6 +681,7 @@ def implement_next_ticket(agent_name: Optional[str] = None) -> dict:
 
     finished = loop["finished"]
     finish_summary = loop["finish_summary"]
+    how_tested = loop.get("how_tested", "")
     files_changed = loop["files_changed"]
     written_files = loop["written_files"]
     total_cost = loop["total_cost"]
@@ -681,9 +695,12 @@ def implement_next_ticket(agent_name: Optional[str] = None) -> dict:
         # Only mark the ticket Done if the PR actually opens — otherwise the code
         # (which lives only on the ephemeral container) would be lost forever and
         # never retried. A failed/unconfigured push leaves the ticket retryable.
-        from orchestrator.channels.github import open_pr_for_ticket, github_configured
+        from orchestrator.channels.github import open_pr_for_ticket, github_configured, agent_token
+        dev_token = agent_token(chosen_agent)
         if not github_configured():
-            pr_error = "GitHub not configured — set GITHUB_TOKEN and GITHUB_REPO in Railway Variables."
+            pr_error = "GitHub not configured — set GITHUB_REPO and a token in Railway Variables."
+        elif not dev_token:
+            pr_error = f"No GitHub token for {identity['name']} — set GITHUB_TOKEN_* for {chosen_agent} (or shared GITHUB_TOKEN)."
         elif not written_files:
             pr_error = "Agent reported done but wrote no files."
         else:
@@ -695,6 +712,8 @@ def implement_next_ticket(agent_name: Optional[str] = None) -> dict:
                 agent_email=identity.get("github_email", identity.get("email", "agent@rse-intelligence.ai")),
                 files=written_files,
                 summary=finish_summary,
+                how_tested=how_tested,
+                token=dev_token,
             )
             if pr.get("ok"):
                 pr_url = pr["pr_url"]
@@ -706,6 +725,7 @@ def implement_next_ticket(agent_name: Optional[str] = None) -> dict:
             add_pr_queue_entry(ticket["id"], ticket["title"], chosen_agent, f"{pr_url} — {finish_summary}", files_changed)
             log_activity_safe(chosen_agent, "pr_opened", f"PR opened for {ticket['id']}: {pr_url}")
             log_activity_safe(chosen_agent, "ticket_completed", f"{ticket['id']} done — {len(files_changed)} files")
+            _pm_review_pr(pr, ticket, chosen_agent, dev_token, finish_summary, files_changed)
             status = "completed"
         else:
             # Built but couldn't deliver — revert so it can be retried once GitHub is fixed.
@@ -733,6 +753,46 @@ def implement_next_ticket(agent_name: Optional[str] = None) -> dict:
         "pr_error": pr_error,
         "cost_usd": round(total_cost, 4),
     }
+
+
+def _pm_review_pr(pr: dict, ticket: dict, author_agent: str, author_token: str,
+                  finish_summary: str, files_changed: list) -> None:
+    """
+    Marcus (PM) reviews the developer's PR using his OWN GitHub account.
+
+    GitHub blocks reviewing your own PR, so this only runs when Marcus has a
+    distinct token from the author. The review text is generated by the PM agent
+    (free on NIM). Best-effort — never blocks the build.
+    """
+    try:
+        from orchestrator.channels.github import agent_token, post_review
+        pm_token = agent_token("project-manager")
+        pr_number = pr.get("pr_number")
+        if not pm_token or not pr_number or pm_token == author_token:
+            return  # no separate PM account → skip (can't self-review)
+
+        from orchestrator.agents.runner import run_agent
+        author_name = get_identity(author_agent)["name"]
+        prompt = (
+            f"You are reviewing a pull request for ticket {ticket['id']} — {ticket['title']}.\n"
+            f"Engineer: {author_name}\n"
+            f"Files changed: {', '.join(files_changed) or '(none listed)'}\n"
+            f"Engineer's summary: {finish_summary}\n\n"
+            "Acceptance criteria for the ticket:\n"
+            f"{ticket.get('full_text', '')[:2000]}\n\n"
+            "Write a concise PR review (3-6 sentences): note what looks good and anything to "
+            "watch or improve against the acceptance criteria. Be specific and professional."
+        )
+        review_body = run_agent("project-manager", prompt, [])
+        event = os.getenv("PM_REVIEW_EVENT", "APPROVE").upper()
+        body = f"**Marcus Webb — PM review of {ticket['id']}**\n\n{review_body}"
+        res = post_review(pr_number, pm_token, event, body)
+        if res.get("ok"):
+            log_activity_safe("project-manager", "pr_reviewed", f"Reviewed {ticket['id']} ({event})")
+        else:
+            logger.warning("[Executor] PM review failed for %s: %s", ticket["id"], res.get("error"))
+    except Exception as e:
+        logger.warning("[Executor] PM review error for %s: %s", ticket["id"], e)
 
 
 def log_activity_safe(agent_name: str, action_type: str, summary: str) -> None:
