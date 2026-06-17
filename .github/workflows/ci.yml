@@ -1,145 +1,20 @@
-name: CI — tests & preview
-
-# Runs on every pull request (including the agents' PRs). Kwame's backend tests
-# run with pytest; Sofia's UI is built as an Expo web export and screenshotted
-# with Playwright, then posted back to the PR as a comment. Both jobs skip
-# gracefully when the relevant project doesn't exist yet, and never hard-fail
-# the PR — they're informational previews, not gates (add branch protection if
-# you want them to be required).
-
-on:
-  pull_request:
-    branches: [ main ]
-
-permissions:
-  contents: write        # to commit the preview screenshot to the PR branch
-  pull-requests: write   # to comment on the PR
-
+name: CI
+on: [pull_request]
 jobs:
-  # ── Kwame: backend tests ────────────────────────────────────────────────────
-  backend-tests:
-    runs-on: ubuntu-latest
+  backend:
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Detect backend
-        id: check
-        run: |
-          if [ -d products/financial-doc-analyzer/backend ]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "No backend project yet — skipping."
-          fi
-
-      - uses: actions/setup-python@v5
-        if: steps.check.outputs.exists == 'true'
-        with:
-          python-version: '3.12'
-
-      - name: Install & run pytest
-        if: steps.check.outputs.exists == 'true'
-        continue-on-error: true
-        working-directory: products/financial-doc-analyzer/backend
-        run: |
-          python -m pip install --upgrade pip
-          [ -f requirements.txt ] && pip install -r requirements.txt || true
-          pip install pytest
-          if ls tests/*.py >/dev/null 2>&1 || ls test_*.py >/dev/null 2>&1; then
-            pytest -q 2>&1 | tee "$GITHUB_WORKSPACE/backend-test-output.txt"
-          else
-            echo "No tests found in backend." | tee "$GITHUB_WORKSPACE/backend-test-output.txt"
-          fi
-
-      - name: Comment test results on PR
-        if: steps.check.outputs.exists == 'true'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            let out = 'No test output produced.';
-            try { out = fs.readFileSync(process.env.GITHUB_WORKSPACE + '/backend-test-output.txt', 'utf8'); } catch (e) {}
-            const body = `### 🧪 Backend tests — Kwame\n\`\`\`\n${out.slice(-6000)}\n\`\`\``;
-            await github.rest.issues.createComment({
-              owner: context.repo.owner, repo: context.repo.repo,
-              issue_number: context.issue.number, body,
-            });
-
-  # ── Sofia: web preview screenshot ───────────────────────────────────────────
-  web-preview:
-    runs-on: ubuntu-latest
+      - checkout
+      - setup Python 3.14
+      - pip install -r requirements.txt
+      - ruff check .
+      - black --check .
+      - pytest --cov=. --cov-report=xml
+      - upload coverage report
+  mobile:
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-
-      - name: Detect mobile/web project
-        id: check
-        run: |
-          if [ -f products/financial-doc-analyzer/mobile/package.json ]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "No mobile project yet — skipping preview."
-          fi
-
-      - uses: actions/setup-node@v4
-        if: steps.check.outputs.exists == 'true'
-        with:
-          node-version: '20'
-
-      - name: Build Expo web & screenshot
-        if: steps.check.outputs.exists == 'true'
-        continue-on-error: true
-        working-directory: products/financial-doc-analyzer/mobile
-        run: |
-          npm install
-          # Expo SDK export — output dir name varies across versions; try both.
-          npx expo export --platform web --output-dir web-dist || npx expo export:web || true
-          npx playwright install --with-deps chromium
-          cat > shot.js <<'EOF'
-          const { chromium } = require('playwright');
-          const http = require('http'), fs = require('fs'), path = require('path');
-          (async () => {
-            const dir = ['web-dist','web-build','dist'].find(d => fs.existsSync(path.join(d,'index.html')));
-            if (!dir) { console.log('No web build found.'); process.exit(0); }
-            const types = {'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.png':'image/png','.svg':'image/svg+xml','.ico':'image/x-icon'};
-            const server = http.createServer((req,res)=>{
-              let f = path.join(dir, req.url === '/' ? 'index.html' : decodeURIComponent(req.url.split('?')[0]));
-              if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) f = path.join(dir,'index.html');
-              res.writeHead(200, {'Content-Type': types[path.extname(f)] || 'application/octet-stream'});
-              fs.createReadStream(f).pipe(res);
-            }).listen(8080);
-            const browser = await chromium.launch();
-            const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-            await page.goto('http://localhost:8080', { waitUntil: 'networkidle', timeout: 60000 }).catch(()=>{});
-            await page.waitForTimeout(3000);
-            fs.mkdirSync(path.join(process.env.GITHUB_WORKSPACE, '.previews'), { recursive: true });
-            await page.screenshot({ path: path.join(process.env.GITHUB_WORKSPACE, '.previews', 'preview.png'), fullPage: true });
-            await browser.close(); server.close();
-            console.log('Screenshot captured.');
-          })().catch(e => { console.log('preview error', e); process.exit(0); });
-          EOF
-          node shot.js || echo "screenshot step failed (non-fatal)"
-
-      - name: Commit & post preview to PR
-        if: steps.check.outputs.exists == 'true'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [ -f .previews/preview.png ]; then
-            git config user.name "rse-ci"
-            git config user.email "ci@rse-intelligence.ai"
-            git add .previews/preview.png
-            # [skip ci] keeps this commit from re-triggering the workflow (no loop).
-            git commit -m "ci: web preview screenshot [skip ci]" || exit 0
-            git push origin HEAD:${{ github.event.pull_request.head.ref }}
-            SHA=$(git rev-parse HEAD)
-            URL="https://raw.githubusercontent.com/${{ github.repository }}/${SHA}/.previews/preview.png"
-            gh pr comment ${{ github.event.pull_request.number }} --body "### 📱 Web preview — Sofia
-            ![preview]($URL)
-            _Built from the Expo web export. Native iOS/Android rendering may differ slightly._"
-          else
-            echo "No screenshot to post."
-          fi
+      - checkout
+      - setup Node 20
+      - npm ci
+      - npx tsc --noEmit
+      - npx jest --coverage
+      - npx expo export --platform all
