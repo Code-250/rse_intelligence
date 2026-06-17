@@ -1,131 +1,141 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
-from jose import jwt, JWTError
 from datetime import datetime, timedelta
-from bcrypt import hashpw, gensalt, checkpw
-from sqlalchemy import create_engine, Column, Integer, String
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-import os
-import logging
+from typing import Optional
+import bcrypt
+import jwt
+from . import models
 
-# Define the router
 router = APIRouter(
     prefix="/api/v1/auth",
-    tags=["auth"],
+    tags=["auth"]
 )
 
-# Define the database connection
-SQLALCHEMY_DATABASE_URL = os.environ.get('FDA_DATABASE_URL')
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
-Base = declarative_base()
+class User(BaseModel):
+    id: int
+    email: str
+    hashed_password: str
 
-# Define the user model
-class User(Base):
-    __tablename__ = 'fda_users'
-    id = Column(Integer, primary_key=True)
-    email = Column(String, unique=True)
-    hashed_password = Column(String)
-
-# Create the database tables
-Base.metadata.create_all(engine)
-
-# Define the session maker
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Define the OAuth2 scheme
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
-
-# Define the token model
 class Token(BaseModel):
     access_token: str
     token_type: str
 
-# Define the token data model
 class TokenData(BaseModel):
-    email: str | None = None
+    email: Optional[str] = None
 
-# Define the user model
-class User(BaseModel):
-    email: str
-    full_name: str | None = None
-    disabled: bool | None = None
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
-# Define the password context
-password_context = CryptContext(schemes=["bcrypt"], default="bcrypt")
-
-# Define the secret key
-SECRET_KEY = os.environ.get('FDA_SECRET_KEY')
+SECRET_KEY = "FDA_SECRET_KEY"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
-# Define the register endpoint
-@router.post("/register")
-async def register(user: User):
-    # Check if the user already exists
-    db = SessionLocal()
-    existing_user = db.query(User).filter(User.email == user.email).first()
-    if existing_user:
-        raise HTTPException(status_code=409, detail="Email already registered")
-    # Hash the password
-    hashed_password = hashpw(user.hashed_password.encode(), gensalt())
-    # Create the user
-    new_user = User(email=user.email, hashed_password=hashed_password)
-    db.add(new_user)
-    db.commit()
-    db.close()
-    # Generate the tokens
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.email}, expires_delta=access_token_expires
-    )
-    refresh_token = create_refresh_token(
-        data={"sub": user.email}, expires_delta=timedelta(days=30)
-    )
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "user_id": new_user.id,
-    }
+def verify_password(plain_password, hashed_password):
+    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password)
 
-# Define the login endpoint
-@router.post("/login")
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    # Check if the user exists
-    db = SessionLocal()
-    user = db.query(User).filter(User.email == form_data.username).first()
+def get_password_hash(password):
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+
+def authenticate_user(fake_db, email: str, password: str):
+    user = models.User.get(email=email)
     if not user:
-        raise HTTPException(status_code=401, detail="Incorrect email or password")
-    # Check if the password is correct
-    if not checkpw(form_data.password.encode(), user.hashed_password):
-        raise HTTPException(status_code=401, detail="Incorrect email or password")
-    # Generate the tokens
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.email}, expires_delta=access_token_expires
-    )
-    refresh_token = create_refresh_token(
-        data={"sub": user.email}, expires_delta=timedelta(days=30)
-    )
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-    }
+        return False
+    if not verify_password(password, user.hashed_password):
+        return False
+    return user
 
-# Define the refresh endpoint
-@router.post("/refresh")
-async def refresh(token: str = Depends(oauth2_scheme)):
-    # Check if the token is valid
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=401,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"}
+    )
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    # Generate the new access token
+        email: str = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+        token_data = TokenData(email=email)
+    except jwt.PyJWTError:
+        raise credentials_exception
+    user = models.User.get(email=token_data.email)
+    if user is None:
+        raise credentials_exception
+    return user
+
+@router.post("/register", response_model=Token)
+async def register(user: models.UserCreate):
+    db_user = models.User.get(email=user.email)
+    if db_user:
+        raise HTTPException(
+            status_code=409,
+            detail="Email already registered"
+        )
+    hashed_password = get_password_hash(user.password)
+    db_user = models.User.create(email=user.email, hashed_password=hashed_password)
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": payload['sub']}, expires_delta=access_token_expires
+        data={"sub": user.email}, expires_delta=access_token_expires
     )
     return {
         "access_token": access_token,
+        "token_type": "bearer"
+    }
+
+@router.post("/login", response_model=Token)
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = authenticate_user(models.User, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password"
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.email}, expires_delta=access_token_expires
+    )
+    return {
+        "access_token": access_token,
+        "token_type": "bearer"
+    }
+
+@router.post("/refresh")
+async def refresh(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise HTTPException(
+                status_code=401,
+                detail="Could not validate credentials"
+            )
+        token_data = TokenData(email=email)
+    except jwt.PyJWTError:
+        raise HTTPException(
+            status_code=401,
+            detail="Could not validate credentials"
+        )
+    user = models.User.get(email=token_data.email)
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Could not validate credentials"
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.email}, expires_delta=access_token_expires
+    )
+    return {
+        "access_token": access_token,
+        "token_type": "bearer"
     }
