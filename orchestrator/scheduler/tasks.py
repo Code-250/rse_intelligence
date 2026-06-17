@@ -193,9 +193,42 @@ def autonomous_build_step():
         logger.info("[AutoBuild] idle — %s", reason)
         return None
 
-    from orchestrator.agents.executor import implement_next_ticket
+    from orchestrator.agents.executor import implement_next_ticket, revise_open_prs
     from orchestrator.db.usage import get_monthly_spend
 
+    # ── 1. Address review feedback on existing PRs BEFORE starting new work ────
+    # If a reviewer requested changes, left comments, or CI failed, the authoring
+    # agent updates its own PR in place. Doing this first keeps open PRs moving
+    # toward merge instead of piling up new ones. Cheap when there's no feedback.
+    try:
+        revisions = revise_open_prs()
+    except Exception as e:
+        logger.error("[AutoBuild] revision pass error: %s", e)
+        revisions = []
+
+    did_revise = False
+    for rev in revisions:
+        if rev.get("status") == "revised":
+            did_revise = True
+            log_activity("coordinator", "pr_revised",
+                         f"{rev.get('ticket_id')} updated after review by {rev.get('agent_display_name', 'agent')}")
+            pr_line = f"\n🔀 {rev['pr_url']}" if rev.get("pr_url") else ""
+            send_whatsapp(
+                f"♻️ *Agent updated a PR after review*\n\n"
+                f"{rev.get('agent_display_name', 'Agent')} addressed feedback on "
+                f"{rev.get('ticket_id')} — {len(rev.get('files_changed', []))} files updated."
+                f"{pr_line}\n\nCI will re-run; re-review when ready."
+            )
+            logger.info("[AutoBuild] %s revised PR #%s", rev.get("ticket_id"), rev.get("pr_number"))
+        elif rev.get("status") in ("revise_failed", "error"):
+            logger.warning("[AutoBuild] revision issue on %s: %s",
+                           rev.get("ticket_id", rev.get("branch")), rev.get("message"))
+
+    # Did revision work this cycle → pace and re-check rather than also building.
+    if did_revise:
+        return {"revisions": revisions}
+
+    # ── 2. Otherwise, build the next eligible ticket ───────────────────────────
     result = implement_next_ticket(None)  # auto-pick the next unblocked ticket
     status = result.get("status")
 
@@ -246,6 +279,15 @@ def run_autobuild_worker():
     def _loop():
         logger.info("[AutoBuild] Continuous worker started (pace %ds, idle %ds)", pace_s, idle_s)
         time.sleep(20)  # let the app finish booting and DB init
+        # On (re)deploy the container is rebuilt from the repo, so its SPRINT-01.md
+        # may show finished tickets as "Not started". Sync completed tickets from
+        # GitHub PRs first so we continue from where we left off, never rebuilding.
+        try:
+            from orchestrator.agents.executor import reconcile_sprint_from_github
+            synced = reconcile_sprint_from_github()
+            logger.info("[AutoBuild] startup reconcile: %d ticket(s) synced from GitHub", synced)
+        except Exception as e:
+            logger.warning("[AutoBuild] startup reconcile skipped: %s", e)
         while True:
             try:
                 result = autonomous_build_step()

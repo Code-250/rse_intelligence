@@ -77,8 +77,19 @@ OWNER_KEYWORD = {
     "mobile-frontend-dev": "mobile",
     "deployment": "deployment",
 }
+# Reverse lookup: sprint-table owner keyword → implementer agent name
+KEYWORD_OWNER = {v: k for k, v in OWNER_KEYWORD.items()}
 # Agents allowed to run the execution loop, in auto-pick priority order
 IMPLEMENTER_ORDER = ["backend-ai-dev", "deployment", "mobile-frontend-dev"]
+
+
+def agent_for_owner_kw(owner_kw: str) -> str:
+    """Resolve the implementer agent for a sprint-table owner keyword.
+
+    Falls back to the backend engineer for anything unrecognised so revision
+    work is never dropped just because a label is unexpected.
+    """
+    return KEYWORD_OWNER.get((owner_kw or "").lower(), "backend-ai-dev")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -157,15 +168,27 @@ def get_next_ticket(agent_name: Optional[str] = None) -> Optional[dict]:
     details = _parse_detail_blocks(text)
     done_ids = {r["id"] for r in rows if r["done"]}
 
+    # Durable progress: tickets that already have an open/merged PR on GitHub.
+    # This survives redeploys (the container's SPRINT-01.md does not), so agents
+    # continue from where they left off instead of rebuilding finished work.
+    try:
+        from orchestrator.channels.github import tickets_with_prs
+        pr_ids = tickets_with_prs()
+    except Exception:
+        pr_ids = set()
+
+    # A blocker counts as satisfied if it's marked done OR already has a PR.
+    satisfied_ids = done_ids | pr_ids
+
     owner_kw = OWNER_KEYWORD.get(agent_name) if agent_name else None
 
     for row in rows:
         if owner_kw and row["owner_kw"] != owner_kw:
             continue
-        if row["done"] or row["in_progress"]:
+        if row["done"] or row["in_progress"] or row["id"] in pr_ids:
             continue
         blockers = details.get(row["id"], {}).get("blocked_by", [])
-        if all(b in done_ids for b in blockers):
+        if all(b in satisfied_ids for b in blockers):
             detail = details.get(row["id"], {})
             return {
                 "id": row["id"],
@@ -175,6 +198,62 @@ def get_next_ticket(agent_name: Optional[str] = None) -> Optional[dict]:
                 "full_text": detail.get("full_text", ""),
             }
     return None
+
+
+def get_ticket(ticket_id: str) -> Optional[dict]:
+    """Return full info for ANY ticket by id (title, owner_kw, blocked_by, full_text).
+
+    Unlike get_next_ticket this does not consider eligibility — it is used to look
+    up the spec for a ticket that already has an open PR so the agent can revise it.
+    """
+    if not SPRINT_FILE.exists():
+        return None
+    text = SPRINT_FILE.read_text(encoding="utf-8")
+    rows = {r["id"]: r for r in _parse_summary_table(text)}
+    details = _parse_detail_blocks(text)
+    row = rows.get(ticket_id)
+    detail = details.get(ticket_id, {})
+    if not row and not detail:
+        return None
+    return {
+        "id": ticket_id,
+        "title": detail.get("title") or (row or {}).get("title", ticket_id),
+        "owner_kw": (row or {}).get("owner_kw", ""),
+        "blocked_by": detail.get("blocked_by", []),
+        "full_text": detail.get("full_text", ""),
+    }
+
+
+def reconcile_sprint_from_github() -> int:
+    """Mark tickets that already have an open/merged PR as Done in SPRINT-01.md.
+
+    Called once at worker startup. The deployed container is rebuilt from the repo
+    on every redeploy, so its SPRINT-01.md can show finished tickets as "Not
+    started". GitHub PRs are the durable record of progress, so we sync the sprint
+    board from them — this is what lets a redeploy continue from where we left off
+    instead of rebuilding completed tickets. Returns the number of tickets updated.
+    """
+    try:
+        from orchestrator.channels.github import tickets_with_prs
+        pr_ids = tickets_with_prs()
+    except Exception as e:
+        logger.warning("[Executor] reconcile skipped (GitHub unavailable): %s", e)
+        return 0
+    if not pr_ids or not SPRINT_FILE.exists():
+        return 0
+
+    done_now = {r["id"] for r in _parse_summary_table(SPRINT_FILE.read_text(encoding="utf-8")) if r["done"]}
+    updated = 0
+    for tid in sorted(pr_ids):
+        if tid in done_now:
+            continue
+        if set_ticket_status(tid, "✅ Done"):
+            updated += 1
+            logger.info("[Executor] reconcile: %s already has a PR — marked Done", tid)
+    if updated:
+        log_activity_safe("coordinator", "reconcile",
+                          f"Synced {updated} ticket(s) from GitHub on startup — completed work will not be rebuilt")
+    return updated
 
 
 def set_ticket_status(ticket_id: str, status_text: str) -> bool:
@@ -418,9 +497,11 @@ CODE_PROVIDER = os.getenv("CODE_PROVIDER", "nim").lower()
 
 NIM_API_KEY = os.getenv("NVIDIA_NIM_API_KEY", "")
 NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
-# Tool-calling-capable free models, tried in order on 404 / tool-unsupported
+# Tool-calling-capable models, tried in order on 404 / tool-unsupported.
+# Default: Nemotron 3 Ultra (NVIDIA's strongest reasoning/coding model) with a
+# Llama fallback in case the slug is unavailable on the account or rejects tools.
 CODE_NIM_MODELS = [m.strip() for m in os.getenv(
-    "CODE_NIM_MODEL", "meta/llama-3.3-70b-instruct,meta/llama-3.1-70b-instruct"
+    "CODE_NIM_MODEL", "nvidia/nemotron-3-ultra-550b-a55b,meta/llama-3.3-70b-instruct"
 ).split(",") if m.strip()]
 
 # OpenAI-style tool schema (what NIM expects) derived from the Anthropic TOOLS
@@ -455,9 +536,9 @@ def _ticket_user_prompt(ticket: dict) -> str:
     )
 
 
-def _run_loop_anthropic(client, agent_name: str, ticket: dict, system_prompt: str) -> dict:
+def _run_loop_anthropic(client, agent_name: str, system_prompt: str, user_prompt: str, task_label: str = "task") -> dict:
     """Agentic tool-use loop on the paid Claude API."""
-    messages = [{"role": "user", "content": _ticket_user_prompt(ticket)}]
+    messages = [{"role": "user", "content": user_prompt}]
     total_cost = 0.0
     files_changed: list[str] = []
     written_files: dict[str, str] = {}
@@ -505,7 +586,7 @@ def _run_loop_anthropic(client, agent_name: str, ticket: dict, system_prompt: st
         if finished:
             break
         if total_cost >= COST_CAP_USD:
-            logger.warning("[Executor] Cost cap hit on %s ($%.2f)", ticket["id"], total_cost)
+            logger.warning("[Executor] Cost cap hit on %s ($%.2f)", task_label, total_cost)
             break
 
     return {"finished": finished, "finish_summary": finish_summary, "how_tested": how_tested,
@@ -537,14 +618,14 @@ def _nim_chat(messages: list, tools: list):
     return None, last_err
 
 
-def _run_loop_nim(agent_name: str, ticket: dict, system_prompt: str) -> dict:
+def _run_loop_nim(agent_name: str, system_prompt: str, user_prompt: str, task_label: str = "task") -> dict:
     """Agentic tool-use loop on free NVIDIA NIM models (OpenAI-style function calling)."""
     if not NIM_API_KEY:
         return {"error": "NVIDIA_NIM_API_KEY not set", "finished": False, "finish_summary": "",
                 "files_changed": [], "written_files": {}, "total_cost": 0.0}
 
     messages = [{"role": "system", "content": system_prompt},
-                {"role": "user", "content": _ticket_user_prompt(ticket)}]
+                {"role": "user", "content": user_prompt}]
     files_changed: list[str] = []
     written_files: dict[str, str] = {}
     finish_summary = ""
@@ -668,10 +749,11 @@ def implement_next_ticket(agent_name: Optional[str] = None) -> dict:
     system_prompt = _build_executor_system_prompt(chosen_agent, ticket)
 
     # Run the agentic build loop on the selected provider.
+    user_prompt = _ticket_user_prompt(ticket)
     if CODE_PROVIDER == "anthropic":
-        loop = _run_loop_anthropic(client, chosen_agent, ticket, system_prompt)
+        loop = _run_loop_anthropic(client, chosen_agent, system_prompt, user_prompt, ticket["id"])
     else:
-        loop = _run_loop_nim(chosen_agent, ticket, system_prompt)
+        loop = _run_loop_nim(chosen_agent, system_prompt, user_prompt, ticket["id"])
 
     if loop.get("error"):
         set_ticket_status(ticket["id"], "🔲 Not started")  # revert so it can be retried
@@ -755,6 +837,159 @@ def implement_next_ticket(agent_name: Optional[str] = None) -> dict:
     }
 
 
+def _run_provider_loop(agent_name: str, system_prompt: str, user_prompt: str, label: str) -> dict:
+    """Run the agentic build/revision loop on the configured provider.
+
+    Returns the same dict shape as the underlying loops, always including an
+    `error` key (None on success).
+    """
+    if CODE_PROVIDER == "anthropic":
+        client = _get_client()
+        if not client:
+            return {"error": "ANTHROPIC_API_KEY not set", "finished": False, "finish_summary": "",
+                    "how_tested": "", "files_changed": [], "written_files": {}, "total_cost": 0.0}
+        return _run_loop_anthropic(client, agent_name, system_prompt, user_prompt, label)
+    return _run_loop_nim(agent_name, system_prompt, user_prompt, label)
+
+
+def _revision_user_prompt(ticket: dict, feedback_text: str, existing_files: dict[str, str]) -> str:
+    """Prompt the agent to revise its PR in response to review feedback."""
+    if existing_files:
+        blob = "\n\n".join(
+            f"--- {path} ---\n{content[:8000]}" for path, content in existing_files.items()
+        )
+    else:
+        blob = "(could not load current branch files — use list_dir/read_file to inspect the repo)"
+    return (
+        f"Your pull request for ticket {ticket['id']} — {ticket['title']} received review "
+        f"feedback that you must address before it can be merged.\n\n"
+        f"## The ticket\n{ticket['full_text']}\n\n"
+        f"## Review feedback to resolve (reviewer comments, change requests, and/or failing CI)\n"
+        f"{feedback_text}\n\n"
+        f"## Current files on your PR branch\n{blob}\n\n"
+        "Address EVERY point of the feedback. Rewrite each file you change in full with write_file "
+        "(repo-relative paths under products/, shared/, or .github/). Add or fix tests as needed and "
+        "verify with run_command where possible. When everything in the feedback is resolved, call "
+        "finish() with a summary of exactly what you changed in response to the review and how you tested it."
+    )
+
+
+def revise_one_pr(pr: dict) -> dict:
+    """Have the authoring agent address review feedback on one open PR.
+
+    Pulls the PR's feedback (only items newer than its latest commit), re-runs the
+    agent with the ticket spec + current files + feedback, then commits the result
+    to the SAME branch so the existing PR updates in place (no new PR). Returns a
+    status dict; status is one of {"revised", "no_feedback", "revise_failed",
+    "skipped", "error"}.
+    """
+    from orchestrator.channels.github import (
+        get_pr_feedback, get_branch_files, commit_files_to_branch, comment_on_pr, agent_token,
+    )
+
+    branch = pr.get("branch", "")
+    pr_number = pr.get("number")
+    head_sha = pr.get("head_sha", "")
+
+    m = re.search(r"fda-(\d+)", branch, re.I) or re.search(r"FDA-(\d+)", pr.get("title", ""))
+    if not m:
+        return {"status": "skipped", "branch": branch, "reason": "no ticket id in branch/title"}
+    ticket_id = f"FDA-{m.group(1).zfill(3)}"
+
+    # Only act when there is NEW feedback since the last commit (prevents loops).
+    feedback = get_pr_feedback(pr_number, head_sha)
+    if not feedback.get("needs_revision"):
+        return {"status": "no_feedback", "ticket_id": ticket_id, "pr_number": pr_number}
+
+    ticket = get_ticket(ticket_id)
+    if not ticket:
+        return {"status": "skipped", "ticket_id": ticket_id, "reason": "ticket spec not found in SPRINT-01.md"}
+
+    agent_name = agent_for_owner_kw(ticket["owner_kw"])
+    identity = get_identity(agent_name)
+    dev_token = agent_token(agent_name)
+    if not dev_token:
+        return {"status": "revise_failed", "ticket_id": ticket_id,
+                "message": f"No GitHub token for {identity['name']} to push the revision."}
+
+    logger.info("[Executor] %s revising %s (PR #%s) after review", identity["name"], ticket_id, pr_number)
+    log_activity_safe(agent_name, "pr_revision_started", f"{ticket_id} — addressing review on PR #{pr_number}")
+
+    existing_files = get_branch_files(branch)
+    system_prompt = _build_executor_system_prompt(agent_name, ticket)
+    user_prompt = _revision_user_prompt(ticket, feedback["text"], existing_files)
+
+    loop = _run_provider_loop(agent_name, system_prompt, user_prompt, f"{ticket_id}-revision")
+    if loop.get("error"):
+        return {"status": "revise_failed", "ticket_id": ticket_id, "pr_number": pr_number,
+                "message": loop["error"], "cost_usd": round(loop.get("total_cost", 0.0), 4)}
+
+    written = loop.get("written_files") or {}
+    if not written:
+        # Nothing changed — leave a note so the reviewer knows it was seen.
+        comment_on_pr(pr_number, dev_token,
+                      f"**{identity['name']}**\n\nI reviewed the feedback but did not change any files. "
+                      f"Could you clarify what you'd like adjusted? \n\n_Summary:_ {loop.get('finish_summary','(none)')}")
+        return {"status": "revise_failed", "ticket_id": ticket_id, "pr_number": pr_number,
+                "message": "agent produced no file changes"}
+
+    author = {"name": identity["name"],
+              "email": identity.get("github_email", identity.get("email", "agent@rse-intelligence.ai"))}
+    commit = commit_files_to_branch(
+        branch, written, dev_token, author, f"{ticket_id}: address review feedback",
+    )
+    if not commit.get("ok"):
+        return {"status": "revise_failed", "ticket_id": ticket_id, "pr_number": pr_number,
+                "message": "commit to PR branch failed (check token write scope)"}
+
+    summary = loop.get("finish_summary") or "Revised in response to review feedback."
+    how_tested = loop.get("how_tested", "")
+    body = (
+        f"**{identity['name']} — revision**\n\n{summary}\n\n"
+        f"**Files updated ({len(commit['committed'])}):**\n"
+        + "\n".join(f"- `{p}`" for p in commit["committed"])
+        + (f"\n\n**How tested:** {how_tested}" if how_tested else "")
+        + "\n\n_Pushed to this PR branch — CI will re-run automatically._"
+    )
+    comment_on_pr(pr_number, dev_token, body)
+    log_activity_safe(agent_name, "pr_revised", f"{ticket_id} — updated PR #{pr_number} ({len(commit['committed'])} files)")
+
+    return {
+        "status": "revised",
+        "ticket_id": ticket_id,
+        "pr_number": pr_number,
+        "pr_url": pr.get("html_url", ""),
+        "agent_name": agent_name,
+        "agent_display_name": identity["name"],
+        "summary": summary,
+        "files_changed": commit["committed"],
+        "cost_usd": round(loop.get("total_cost", 0.0), 4),
+    }
+
+
+def revise_open_prs(max_prs: int = 3) -> list[dict]:
+    """Address review feedback across the agents' open PRs, oldest first.
+
+    Returns one result per PR that actually had new feedback (revised or failed);
+    PRs with no new feedback are skipped silently. Best-effort — never raises.
+    """
+    from orchestrator.channels.github import github_configured, list_open_agent_prs
+
+    if not github_configured():
+        return []
+
+    results: list[dict] = []
+    for pr in list_open_agent_prs()[:max_prs]:
+        try:
+            r = revise_one_pr(pr)
+        except Exception as e:
+            logger.error("[Executor] revision error on %s: %s", pr.get("branch"), e)
+            r = {"status": "error", "branch": pr.get("branch"), "message": str(e)}
+        if r.get("status") in ("revised", "revise_failed", "error"):
+            results.append(r)
+    return results
+
+
 def _pm_review_pr(pr: dict, ticket: dict, author_agent: str, author_token: str,
                   finish_summary: str, files_changed: list) -> None:
     """
@@ -783,9 +1018,26 @@ def _pm_review_pr(pr: dict, ticket: dict, author_agent: str, author_token: str,
             "Write a concise PR review (3-6 sentences): note what looks good and anything to "
             "watch or improve against the acceptance criteria. Be specific and professional."
         )
-        review_body = run_agent("project-manager", prompt, [])
-        event = os.getenv("PM_REVIEW_EVENT", "APPROVE").upper()
-        body = f"**Marcus Webb — PM review of {ticket['id']}**\n\n{review_body}"
+        review_body = (run_agent("project-manager", prompt, []) or "").strip()
+
+        # Never approve with an error body. If the model call failed, post a
+        # neutral COMMENT asking for manual review instead of rubber-stamping.
+        low = review_body.lower()
+        is_error = (
+            not review_body
+            or review_body.startswith("⚠️")
+            or "could not reach any nim" in low
+            or "api error" in low[:60]
+            or "is not set" in low[:60]
+        )
+        if is_error:
+            event = "COMMENT"
+            body = (f"**Marcus Webb — PM**\n\n_Automated review couldn't be generated right now "
+                    f"({review_body[:160] or 'model unavailable'}). Please review this PR manually._")
+        else:
+            event = os.getenv("PM_REVIEW_EVENT", "APPROVE").upper()
+            body = f"**Marcus Webb — PM review of {ticket['id']}**\n\n{review_body}"
+
         res = post_review(pr_number, pm_token, event, body)
         if res.get("ok"):
             log_activity_safe("project-manager", "pr_reviewed", f"Reviewed {ticket['id']} ({event})")

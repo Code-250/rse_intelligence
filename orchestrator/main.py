@@ -397,6 +397,25 @@ async def run_ticket(req: RunTicketRequest):
     return result
 
 
+@app.post("/api/agents/revise-prs", tags=["agents"])
+async def revise_prs():
+    """
+    Have agents address review feedback on their open PRs.
+
+    For each open agent PR with NEW feedback (a change request, a reviewer/Copilot
+    comment, or a failing CI check since its last commit), the authoring agent
+    revises the code and pushes to the same branch — updating the existing PR in
+    place rather than opening a new one. The autobuild worker also does this
+    automatically each cycle; this endpoint is a manual trigger.
+    """
+    import anyio
+    from orchestrator.agents.executor import revise_open_prs
+
+    results = await anyio.to_thread.run_sync(revise_open_prs)
+    revised = [r for r in results if r.get("status") == "revised"]
+    return {"revised_count": len(revised), "results": results}
+
+
 @app.get("/api/pr-queue", tags=["dashboard"])
 async def pr_queue():
     """Read PR queue for the dashboard and parse the 'Awaiting Approval' table into structured PRs."""
