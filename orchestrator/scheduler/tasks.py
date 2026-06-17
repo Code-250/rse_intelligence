@@ -147,19 +147,34 @@ def evening_digest():
 # resumes automatically when the day rolls over or new tickets become unblocked.
 
 
+# Set when a build cycle hits a problem (over budget, misconfig, a ticket that
+# couldn't complete). Stops the worker from re-running and re-spending until the
+# app is redeployed (which clears it) or the issue is fixed.
+_autobuild_halt_reason = ""
+
+
 def _autobuild_ready() -> tuple[bool, str]:
     """Whether the builder may run right now. Returns (ok, reason_if_not)."""
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        return False, "ANTHROPIC_API_KEY not set"
+    if _autobuild_halt_reason:
+        return False, f"halted — {_autobuild_halt_reason}"
     if os.getenv("AUTOBUILD_ENABLED", "true").lower() != "true":
         return False, "AUTOBUILD_ENABLED is off"
-    from orchestrator.db.usage import get_monthly_spend, get_today_spend
-    monthly_budget = float(os.getenv("MONTHLY_BUDGET_USD", "20.0"))
-    daily_cap = float(os.getenv("AUTOBUILD_DAILY_BUDGET_USD", "3.0"))
-    if get_monthly_spend() >= monthly_budget:
-        return False, f"monthly budget reached (${monthly_budget:.2f})"
-    if get_today_spend() >= daily_cap:
-        return False, f"daily cap reached (${daily_cap:.2f})"
+
+    provider = os.getenv("CODE_PROVIDER", "nim").lower()
+    if provider == "anthropic":
+        if not os.getenv("ANTHROPIC_API_KEY"):
+            return False, "ANTHROPIC_API_KEY not set"
+        # Budget only applies to the paid provider (NIM is free).
+        from orchestrator.db.usage import get_monthly_spend, get_today_spend
+        monthly_budget = float(os.getenv("MONTHLY_BUDGET_USD", "20.0"))
+        daily_cap = float(os.getenv("AUTOBUILD_DAILY_BUDGET_USD", "3.0"))
+        if get_monthly_spend() >= monthly_budget:
+            return False, f"monthly budget reached (${monthly_budget:.2f})"
+        if get_today_spend() >= daily_cap:
+            return False, f"daily cap reached (${daily_cap:.2f})"
+    else:  # nim (free)
+        if not os.getenv("NVIDIA_NIM_API_KEY"):
+            return False, "NVIDIA_NIM_API_KEY not set"
     return True, ""
 
 
@@ -171,6 +186,8 @@ def autonomous_build_step():
     (disabled, over budget, or no eligible ticket). Notifies Richard on WhatsApp
     for each ticket completed or paused.
     """
+    global _autobuild_halt_reason
+
     ok, reason = _autobuild_ready()
     if not ok:
         logger.info("[AutoBuild] idle — %s", reason)
@@ -183,28 +200,38 @@ def autonomous_build_step():
     status = result.get("status")
 
     if status == "no_ticket":
-        logger.info("[AutoBuild] no eligible tickets right now")
-        return None
-    if status in ("no_api_key", "error"):
-        logger.warning("[AutoBuild] stopped: %s — %s", status, result.get("message", ""))
+        logger.info("[AutoBuild] no eligible tickets right now — idling")
         return None
 
-    # A ticket was built (completed or stopped early)
-    log_activity("coordinator", "deploy", f"AutoBuild: {result.get('ticket_id')} {status}")
-    icon = "✅" if status == "completed" else "⏸️"
-    verb = "finished" if status == "completed" else "paused on"
-    monthly = get_monthly_spend()
-    monthly_budget = float(os.getenv("MONTHLY_BUDGET_USD", "20.0"))
+    if status == "completed":
+        monthly = get_monthly_spend()
+        monthly_budget = float(os.getenv("MONTHLY_BUDGET_USD", "20.0"))
+        pr_line = f"\n🔀 {result['pr_url']}" if result.get("pr_url") else ""
+        log_activity("coordinator", "deploy", f"AutoBuild: {result.get('ticket_id')} completed")
+        send_whatsapp(
+            f"✅ *Agent shipped a ticket*\n\n"
+            f"{result.get('agent_display_name', 'Agent')} finished "
+            f"{result.get('ticket_id')} — {result.get('ticket_title', '')}\n"
+            f"{len(result.get('files_changed', []))} files · ${float(result.get('cost_usd', 0) or 0):.2f}"
+            f"{pr_line}\n\n"
+            f"Month to date: ${monthly:.2f} of ${monthly_budget:.2f}\n"
+            f"Review and merge the PR on GitHub."
+        )
+        logger.info("[AutoBuild] %s completed ($%.2f)", result.get("ticket_id"), float(result.get("cost_usd", 0) or 0))
+        return result
+
+    # Any other outcome (budget reached, misconfig, error, stopped early, PR
+    # failed) — HALT the worker so it can't re-run and re-spend. Alert Richard once.
+    _autobuild_halt_reason = result.get("message") or result.get("pr_error") or status
+    logger.warning("[AutoBuild] halting — %s", _autobuild_halt_reason)
+    log_activity("coordinator", "blocker_alert", f"AutoBuild halted: {_autobuild_halt_reason[:120]}")
     send_whatsapp(
-        f"{icon} *Agent build update*\n\n"
-        f"{result.get('agent_display_name', 'Agent')} {verb} "
-        f"{result.get('ticket_id')} — {result.get('ticket_title', '')}\n"
-        f"{len(result.get('files_changed', []))} files · ${float(result.get('cost_usd', 0) or 0):.2f}\n\n"
-        f"Month to date: ${monthly:.2f} of ${monthly_budget:.2f}\n"
-        f"Review the PR in the Tickets tab of your dashboard."
+        f"⏸️ *Autonomous build paused*\n\n"
+        f"Reason: {_autobuild_halt_reason}\n\n"
+        f"No more credits will be spent until this is resolved. Fix it and redeploy "
+        f"(or use the dashboard) to resume."
     )
-    logger.info("[AutoBuild] %s %s ($%.2f)", result.get("ticket_id"), status, float(result.get("cost_usd", 0) or 0))
-    return result
+    return None
 
 
 def run_autobuild_worker():

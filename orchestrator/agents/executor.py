@@ -30,6 +30,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+import requests
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -401,20 +403,228 @@ def _build_executor_system_prompt(agent_name: str, ticket: dict) -> str:
 #  The execution loop
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ══ Provider selection ════════════════════════════════════════════════════════
+#   "nim"        → free NVIDIA NIM models — validate the pipeline at ~$0
+#   "anthropic"  → paid Claude API — best coding quality
+# Switch with CODE_PROVIDER in Railway Variables. Defaults to free NIM.
+CODE_PROVIDER = os.getenv("CODE_PROVIDER", "nim").lower()
+
+NIM_API_KEY = os.getenv("NVIDIA_NIM_API_KEY", "")
+NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
+# Tool-calling-capable free models, tried in order on 404 / tool-unsupported
+CODE_NIM_MODELS = [m.strip() for m in os.getenv(
+    "CODE_NIM_MODEL", "meta/llama-3.3-70b-instruct,meta/llama-3.1-70b-instruct"
+).split(",") if m.strip()]
+
+# OpenAI-style tool schema (what NIM expects) derived from the Anthropic TOOLS
+OPENAI_TOOLS = [
+    {"type": "function", "function": {"name": t["name"], "description": t["description"], "parameters": t["input_schema"]}}
+    for t in TOOLS
+]
+
+
+def _apply_tool(name: str, args: dict, files_changed: list, written_files: dict):
+    """Execute one tool call (shared by both providers). Returns (result_text, is_finish, finish_args)."""
+    if name == "finish":
+        return "Acknowledged — ticket marked complete.", True, args
+    func = _TOOL_FUNCS.get(name)
+    if not func:
+        return f"(unknown tool: {name})", False, None
+    try:
+        result = func(args)
+        if name == "write_file" and args.get("path"):
+            files_changed.append(args["path"])
+            written_files[args["path"].lstrip("/")] = args.get("content", "")
+    except Exception as e:
+        result = f"(tool error: {e})"
+    return str(result), False, None
+
+
+def _ticket_user_prompt(ticket: dict) -> str:
+    return (
+        f"Implement this ticket now, end to end:\n\n{ticket['full_text']}\n\n"
+        "Explore the repo, write all required files, and call the finish function "
+        "when every acceptance criterion is satisfied."
+    )
+
+
+def _run_loop_anthropic(client, agent_name: str, ticket: dict, system_prompt: str) -> dict:
+    """Agentic tool-use loop on the paid Claude API."""
+    messages = [{"role": "user", "content": _ticket_user_prompt(ticket)}]
+    total_cost = 0.0
+    files_changed: list[str] = []
+    written_files: dict[str, str] = {}
+    finish_summary = ""
+    finished = False
+
+    for iteration in range(1, MAX_ITERATIONS + 1):
+        try:
+            resp = client.messages.create(
+                model=CODE_MODEL, max_tokens=8000,
+                system=system_prompt, messages=messages, tools=TOOLS,
+            )
+        except Exception as e:
+            return {"error": f"Claude API error: {e}", "finished": False, "finish_summary": "",
+                    "files_changed": files_changed, "written_files": written_files, "total_cost": total_cost}
+
+        in_tok, out_tok = resp.usage.input_tokens, resp.usage.output_tokens
+        cost = _calculate_cost(CODE_MODEL, in_tok, out_tok)
+        total_cost += cost
+        _record_usage({"input_tokens": in_tok, "output_tokens": out_tok, "cost_usd": cost,
+                       "model": CODE_MODEL, "agent_name": agent_name})
+
+        messages.append({"role": "assistant", "content": resp.content})
+
+        if resp.stop_reason != "tool_use":
+            messages.append({"role": "user", "content": "If the ticket is complete, call finish(). Otherwise continue implementing."})
+            if iteration >= 2:
+                break
+            continue
+
+        tool_results = []
+        for block in resp.content:
+            if getattr(block, "type", None) != "tool_use":
+                continue
+            res, is_finish, fargs = _apply_tool(block.name, block.input or {}, files_changed, written_files)
+            if is_finish:
+                finish_summary = fargs.get("summary", "")
+                files_changed[:] = fargs.get("files_changed", []) or files_changed
+                finished = True
+            tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": res})
+        messages.append({"role": "user", "content": tool_results})
+
+        if finished:
+            break
+        if total_cost >= COST_CAP_USD:
+            logger.warning("[Executor] Cost cap hit on %s ($%.2f)", ticket["id"], total_cost)
+            break
+
+    return {"finished": finished, "finish_summary": finish_summary, "files_changed": files_changed,
+            "written_files": written_files, "total_cost": total_cost, "error": None}
+
+
+def _nim_chat(messages: list, tools: list):
+    """One NIM chat-completions call, walking the model chain. Returns (assistant_msg, usage) or (None, error_str)."""
+    headers = {"Authorization": f"Bearer {NIM_API_KEY}", "Content-Type": "application/json"}
+    last_err = "no NIM model responded"
+    for model in CODE_NIM_MODELS:
+        payload = {"model": model, "messages": messages, "tools": tools,
+                   "tool_choice": "auto", "max_tokens": 4096, "temperature": 0.2}
+        try:
+            r = requests.post(f"{NIM_BASE_URL}/chat/completions", headers=headers, json=payload, timeout=120)
+        except Exception as e:
+            last_err = f"request failed: {e}"
+            continue
+        if r.status_code == 200:
+            data = r.json()
+            msg = data["choices"][0]["message"]
+            usage = data.get("usage", {}) or {}
+            return msg, {"model": model, "input_tokens": usage.get("prompt_tokens", 0),
+                         "output_tokens": usage.get("completion_tokens", 0)}
+        # 404 = model missing, 400 = tools unsupported → try the next model
+        last_err = f"HTTP {r.status_code} on {model}: {r.text[:150]}"
+        logger.warning("[Executor/NIM] %s", last_err)
+    return None, last_err
+
+
+def _run_loop_nim(agent_name: str, ticket: dict, system_prompt: str) -> dict:
+    """Agentic tool-use loop on free NVIDIA NIM models (OpenAI-style function calling)."""
+    if not NIM_API_KEY:
+        return {"error": "NVIDIA_NIM_API_KEY not set", "finished": False, "finish_summary": "",
+                "files_changed": [], "written_files": {}, "total_cost": 0.0}
+
+    messages = [{"role": "system", "content": system_prompt},
+                {"role": "user", "content": _ticket_user_prompt(ticket)}]
+    files_changed: list[str] = []
+    written_files: dict[str, str] = {}
+    finish_summary = ""
+    finished = False
+
+    for iteration in range(1, MAX_ITERATIONS + 1):
+        msg, usage = _nim_chat(messages, OPENAI_TOOLS)
+        if msg is None:
+            return {"error": f"NIM error: {usage}", "finished": False, "finish_summary": "",
+                    "files_changed": files_changed, "written_files": written_files, "total_cost": 0.0}
+
+        _record_usage({"input_tokens": usage["input_tokens"], "output_tokens": usage["output_tokens"],
+                       "cost_usd": 0.0, "model": usage["model"], "agent_name": agent_name})
+
+        tool_calls = msg.get("tool_calls") or []
+        # Echo the assistant message back (with tool_calls so NIM can match tool replies)
+        if tool_calls:
+            messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": tool_calls})
+        else:
+            messages.append({"role": "assistant", "content": msg.get("content") or ""})
+
+        if not tool_calls:
+            messages.append({"role": "user", "content": "If the ticket is complete, call the finish function. Otherwise keep implementing using the tools."})
+            if iteration >= 2:
+                break
+            continue
+
+        for tc in tool_calls:
+            fn = tc.get("function", {}) or {}
+            name = fn.get("name", "")
+            try:
+                args = json.loads(fn.get("arguments") or "{}")
+            except Exception:
+                args = {}
+            res, is_finish, fargs = _apply_tool(name, args, files_changed, written_files)
+            if is_finish:
+                finish_summary = fargs.get("summary", "")
+                files_changed[:] = fargs.get("files_changed", []) or files_changed
+                finished = True
+            messages.append({"role": "tool", "tool_call_id": tc.get("id", ""), "content": res})
+
+        if finished:
+            break
+
+    return {"finished": finished, "finish_summary": finish_summary, "files_changed": files_changed,
+            "written_files": written_files, "total_cost": 0.0, "error": None}
+
+
 def implement_next_ticket(agent_name: Optional[str] = None) -> dict:
     """
     Pick the next eligible ticket and have the assigned agent implement it.
 
-    Returns a dict describing the outcome:
-        {status, ticket_id, agent_name, summary, files_changed, cost_usd, iterations}
-      status in {"completed", "stopped_early", "no_ticket", "no_api_key", "error"}
+    Uses CODE_PROVIDER ("nim" = free, "anthropic" = paid Claude) for the build loop.
+
+    Returns a dict describing the outcome. status in
+      {"completed", "stopped_early", "pr_failed", "no_ticket", "no_api_key",
+       "budget_reached", "github_not_configured", "error"}
     """
-    client = _get_client()
-    if not client:
-        return {
-            "status": "no_api_key",
-            "message": "ANTHROPIC_API_KEY is not set. Add it in Railway Variables to let agents implement tickets.",
-        }
+    client = None
+    if CODE_PROVIDER == "anthropic":
+        client = _get_client()
+        if not client:
+            return {"status": "no_api_key",
+                    "message": "CODE_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set. Add it in Railway Variables."}
+    else:
+        if not NIM_API_KEY:
+            return {"status": "no_api_key",
+                    "message": "CODE_PROVIDER=nim but NVIDIA_NIM_API_KEY is not set. Get a free key at build.nvidia.com and add it in Railway Variables."}
+
+    # Budget gate — only meaningful for the PAID provider. NIM is free, so it has
+    # no spend to gate (and shouldn't be blocked by earlier paid spend today).
+    if CODE_PROVIDER == "anthropic":
+        from orchestrator.db.usage import get_monthly_spend, get_today_spend
+        monthly_budget = float(os.getenv("MONTHLY_BUDGET_USD", "20.0"))
+        daily_cap = float(os.getenv("AUTOBUILD_DAILY_BUDGET_USD", "3.0"))
+        monthly_spend, today_spend = get_monthly_spend(), get_today_spend()
+        if monthly_spend >= monthly_budget:
+            return {"status": "budget_reached",
+                    "message": f"Monthly budget reached (${monthly_spend:.2f} of ${monthly_budget:.2f}). Raise MONTHLY_BUDGET_USD to continue."}
+        if today_spend >= daily_cap:
+            return {"status": "budget_reached",
+                    "message": f"Daily cap reached (${today_spend:.2f} of ${daily_cap:.2f}). Resets tomorrow, or raise AUTOBUILD_DAILY_BUDGET_USD."}
+
+    # GitHub pre-check — fail BEFORE spending anything if we can't deliver the
+    # result. (Agents write to an ephemeral container, so a PR is the only way
+    # the code reaches Richard.) This avoids paying for a build we can't ship.
+    from orchestrator.channels.github import github_configured
+    if not github_configured():
+        return {"status": "github_not_configured",
+                "message": "Set GITHUB_TOKEN and GITHUB_REPO in Railway Variables so agents can open PRs with their code."}
 
     # Auto-pick an implementer + ticket if no agent specified
     if agent_name:
@@ -443,100 +653,72 @@ def implement_next_ticket(agent_name: Optional[str] = None) -> dict:
     log_activity_safe(chosen_agent, "ticket_started", f"{ticket['id']} — {ticket['title']}")
 
     system_prompt = _build_executor_system_prompt(chosen_agent, ticket)
-    messages = [{
-        "role": "user",
-        "content": (
-            f"Implement this ticket now, end to end:\n\n{ticket['full_text']}\n\n"
-            "Explore the repo, write all required files, and call finish() when every "
-            "acceptance criterion is satisfied."
-        ),
-    }]
 
-    total_cost = 0.0
-    files_changed: list[str] = []
-    finish_summary = ""
-    finished = False
+    # Run the agentic build loop on the selected provider.
+    if CODE_PROVIDER == "anthropic":
+        loop = _run_loop_anthropic(client, chosen_agent, ticket, system_prompt)
+    else:
+        loop = _run_loop_nim(chosen_agent, ticket, system_prompt)
 
-    for iteration in range(1, MAX_ITERATIONS + 1):
-        try:
-            resp = client.messages.create(
-                model=CODE_MODEL,
-                max_tokens=8000,
-                system=system_prompt,
-                messages=messages,
-                tools=TOOLS,
-            )
-        except Exception as e:
-            logger.error("[Executor] Claude error on %s: %s", ticket["id"], e)
-            set_ticket_status(ticket["id"], "🔲 Not started")  # revert so it can be retried
-            return {"status": "error", "ticket_id": ticket["id"], "agent_name": chosen_agent,
-                    "message": f"Claude API error: {e}", "cost_usd": round(total_cost, 4)}
+    if loop.get("error"):
+        set_ticket_status(ticket["id"], "🔲 Not started")  # revert so it can be retried
+        logger.error("[Executor] %s loop error: %s", ticket["id"], loop["error"])
+        return {"status": "error", "ticket_id": ticket["id"], "agent_name": chosen_agent,
+                "message": loop["error"], "cost_usd": round(loop.get("total_cost", 0.0), 4)}
 
-        # Meter this turn
-        in_tok, out_tok = resp.usage.input_tokens, resp.usage.output_tokens
-        cost = _calculate_cost(CODE_MODEL, in_tok, out_tok)
-        total_cost += cost
-        _record_usage({
-            "input_tokens": in_tok, "output_tokens": out_tok, "cost_usd": cost,
-            "model": CODE_MODEL, "agent_name": chosen_agent,
-        })
-
-        # Record assistant turn
-        messages.append({"role": "assistant", "content": resp.content})
-
-        if resp.stop_reason != "tool_use":
-            # Agent stopped without calling finish — nudge once, else stop
-            messages.append({"role": "user", "content": "If the ticket is complete, call finish(). Otherwise continue implementing."})
-            if iteration >= 2:
-                break
-            continue
-
-        # Execute every tool call in this turn
-        tool_results = []
-        for block in resp.content:
-            if getattr(block, "type", None) != "tool_use":
-                continue
-            name, args, use_id = block.name, block.input or {}, block.id
-
-            if name == "finish":
-                finish_summary = args.get("summary", "")
-                files_changed = args.get("files_changed", []) or files_changed
-                finished = True
-                tool_results.append({"type": "tool_result", "tool_use_id": use_id, "content": "Acknowledged — ticket marked complete."})
-                continue
-
-            func = _TOOL_FUNCS.get(name)
-            if not func:
-                tool_results.append({"type": "tool_result", "tool_use_id": use_id, "content": f"(unknown tool: {name})", "is_error": True})
-                continue
-            try:
-                result = func(args)
-                if name == "write_file" and args.get("path"):
-                    files_changed.append(args["path"])
-            except Exception as e:
-                result = f"(tool error: {e})"
-            tool_results.append({"type": "tool_result", "tool_use_id": use_id, "content": str(result)})
-
-        messages.append({"role": "user", "content": tool_results})
-
-        if finished:
-            break
-
-        if total_cost >= COST_CAP_USD:
-            logger.warning("[Executor] Cost cap hit on %s ($%.2f)", ticket["id"], total_cost)
-            break
+    finished = loop["finished"]
+    finish_summary = loop["finish_summary"]
+    files_changed = loop["files_changed"]
+    written_files = loop["written_files"]
+    total_cost = loop["total_cost"]
 
     files_changed = sorted(set(files_changed))
+    pr_url = ""
+    pr_error = ""
 
     if finished:
-        set_ticket_status(ticket["id"], "✅ Done")
-        add_pr_queue_entry(ticket["id"], ticket["title"], chosen_agent, finish_summary, files_changed)
-        log_activity_safe(chosen_agent, "ticket_completed", f"{ticket['id']} done — {len(files_changed)} files")
-        log_activity_safe(chosen_agent, "pr_opened", f"PR ready for {ticket['id']}: {ticket['title']}")
-        status = "completed"
+        # Push the agent's work to GitHub as a real, reviewable pull request.
+        # Only mark the ticket Done if the PR actually opens — otherwise the code
+        # (which lives only on the ephemeral container) would be lost forever and
+        # never retried. A failed/unconfigured push leaves the ticket retryable.
+        from orchestrator.channels.github import open_pr_for_ticket, github_configured
+        if not github_configured():
+            pr_error = "GitHub not configured — set GITHUB_TOKEN and GITHUB_REPO in Railway Variables."
+        elif not written_files:
+            pr_error = "Agent reported done but wrote no files."
+        else:
+            pr = open_pr_for_ticket(
+                ticket_id=ticket["id"],
+                title=ticket["title"],
+                agent_name=chosen_agent,
+                agent_display_name=identity["name"],
+                agent_email=identity.get("github_email", identity.get("email", "agent@rse-intelligence.ai")),
+                files=written_files,
+                summary=finish_summary,
+            )
+            if pr.get("ok"):
+                pr_url = pr["pr_url"]
+            else:
+                pr_error = pr.get("error", "PR push failed.")
+
+        if pr_url:
+            set_ticket_status(ticket["id"], "✅ Done")
+            add_pr_queue_entry(ticket["id"], ticket["title"], chosen_agent, f"{pr_url} — {finish_summary}", files_changed)
+            log_activity_safe(chosen_agent, "pr_opened", f"PR opened for {ticket['id']}: {pr_url}")
+            log_activity_safe(chosen_agent, "ticket_completed", f"{ticket['id']} done — {len(files_changed)} files")
+            status = "completed"
+        else:
+            # Built but couldn't deliver — revert so it can be retried once GitHub is fixed.
+            set_ticket_status(ticket["id"], "🔲 Not started")
+            logger.warning("[Executor] %s built but not delivered: %s", ticket["id"], pr_error)
+            log_activity_safe(chosen_agent, "ticket_paused", f"{ticket['id']} built but PR not opened: {pr_error[:120]}")
+            status = "pr_failed"
     else:
-        # Leave it in progress so a follow-up run can resume; flag for Richard
-        log_activity_safe(chosen_agent, "ticket_paused", f"{ticket['id']} stopped early ({len(files_changed)} files, ${total_cost:.2f})")
+        # Did not finish within the budget — revert to Not started so the ticket
+        # isn't permanently stuck blocking the rest of the sprint. Partial work is
+        # discarded (no PR) to avoid half-baked branches.
+        set_ticket_status(ticket["id"], "🔲 Not started")
+        log_activity_safe(chosen_agent, "ticket_paused", f"{ticket['id']} stopped early ({len(files_changed)} files, ${total_cost:.2f}) — reverted to Not started")
         status = "stopped_early"
 
     return {
@@ -547,6 +729,8 @@ def implement_next_ticket(agent_name: Optional[str] = None) -> dict:
         "agent_display_name": identity["name"],
         "summary": finish_summary or "Work in progress — did not reach completion within the loop budget.",
         "files_changed": files_changed,
+        "pr_url": pr_url,
+        "pr_error": pr_error,
         "cost_usd": round(total_cost, 4),
     }
 

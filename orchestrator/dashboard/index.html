@@ -1255,13 +1255,17 @@ async function runNextTicket() {
         ? `✅ ${d.agent_display_name || d.agent_name} finished ${d.ticket_id}`
         : `⏸️ ${d.agent_display_name || d.agent_name} paused on ${d.ticket_id}`;
       const files = (d.files_changed || []).map(f => `<code>${esc(f)}</code>`).join('');
+      const prLink = d.pr_url
+        ? `<div class="run-result-files">🔀 <a href="${esc(d.pr_url)}" target="_blank" rel="noopener">View pull request on GitHub</a></div>`
+        : '';
       box.innerHTML = `<div class="run-result-title">${esc(title)}</div>${esc(d.summary || '')}
+        ${prLink}
         ${files ? `<div class="run-result-files">Files: ${files}</div>` : ''}
         <div class="run-result-files">Cost: $${(d.cost_usd ?? 0).toFixed(4)}</div>`;
       loadTickets();  // refresh progress, ticket list, PR queue
     } else {
       box.className = 'run-result err';
-      box.innerHTML = `<div class="run-result-title">Couldn't run a ticket</div>${esc(d.message || d.status || 'Unknown error.')}`;
+      box.innerHTML = `<div class="run-result-title">Couldn't run a ticket</div>${esc(d.message || d.pr_error || d.status || 'Unknown error.')}`;
     }
   } catch {
     box.className = 'run-result err';
