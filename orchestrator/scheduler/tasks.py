@@ -279,13 +279,14 @@ def run_autobuild_worker():
     def _loop():
         logger.info("[AutoBuild] Continuous worker started (pace %ds, idle %ds)", pace_s, idle_s)
         time.sleep(20)  # let the app finish booting and DB init
-        # On (re)deploy the container is rebuilt from the repo, so its SPRINT-01.md
-        # may show finished tickets as "Not started". Sync completed tickets from
-        # GitHub PRs first so we continue from where we left off, never rebuilding.
+        # GitHub Issues are the source of truth, so completed (closed) and
+        # in-progress (open PR) state already survive a redeploy. The only cleanup
+        # needed is releasing any issue left labelled 'building' by a container that
+        # died mid-build, so it becomes eligible again instead of stuck.
         try:
-            from orchestrator.agents.executor import reconcile_sprint_from_github
-            synced = reconcile_sprint_from_github()
-            logger.info("[AutoBuild] startup reconcile: %d ticket(s) synced from GitHub", synced)
+            from orchestrator.agents.executor import reconcile_building_labels
+            cleared = reconcile_building_labels()
+            logger.info("[AutoBuild] startup reconcile: cleared %d stale 'building' label(s)", cleared)
         except Exception as e:
             logger.warning("[AutoBuild] startup reconcile skipped: %s", e)
         while True:

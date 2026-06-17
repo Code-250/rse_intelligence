@@ -26,6 +26,7 @@ import os
 import re
 import time
 from typing import Optional
+from urllib.parse import quote
 
 import requests
 
@@ -54,6 +55,12 @@ def agent_token(agent_name: str) -> str:
 
 def _any_token() -> bool:
     return bool(os.getenv("GITHUB_TOKEN") or any(os.getenv(v) for v in AGENT_TOKEN_ENV.values()))
+
+
+def _read_token() -> str:
+    """Any usable token for read-only calls (shared, else the first agent token)."""
+    return os.getenv("GITHUB_TOKEN") or next(
+        (os.getenv(v) for v in AGENT_TOKEN_ENV.values() if os.getenv(v)), "")
 
 
 def github_configured() -> bool:
@@ -281,6 +288,180 @@ def comment_on_pr(pr_number: int, token: str, body: str) -> bool:
         return False
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Issues — the backlog / source of truth
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _issue_dict(it: dict) -> dict:
+    """Normalise a GitHub issue payload to the fields we use."""
+    return {
+        "number": it.get("number"),
+        "title": it.get("title", ""),
+        "body": it.get("body") or "",
+        "state": it.get("state", "open"),
+        "labels": [lbl.get("name", "") for lbl in (it.get("labels") or [])],
+        "html_url": it.get("html_url", ""),
+        "assignees": [a.get("login", "") for a in (it.get("assignees") or [])],
+    }
+
+
+def ensure_label(name: str, token: str, color: str = "ededed", description: str = "") -> bool:
+    """Create a repo label if it doesn't exist (idempotent). 422 == already exists."""
+    owner, repo, _ = _cfg()
+    if not token or not owner or not name:
+        return False
+    try:
+        r = requests.post(f"{API}/repos/{owner}/{repo}/labels", headers=_headers(token),
+                          json={"name": name, "color": color, "description": description}, timeout=30)
+        return r.status_code in (200, 201, 422)
+    except Exception as e:
+        logger.warning("[GitHub] ensure_label %s failed: %s", name, e)
+        return False
+
+
+def create_issue(title: str, body: str, labels: list[str], token: str,
+                 assignees: Optional[list[str]] = None) -> dict:
+    """Open a new issue. `token` should be the creating agent's token (e.g. Marcus).
+
+    Returns {"ok": True, "number", "url", "title"} or {"ok": False, "error"}.
+    """
+    owner, repo, _ = _cfg()
+    if not token or not owner:
+        return {"ok": False, "error": "GitHub not configured (need GITHUB_REPO + a token)."}
+    payload: dict = {"title": title, "body": body, "labels": labels or []}
+    if assignees:
+        payload["assignees"] = assignees
+    try:
+        r = requests.post(f"{API}/repos/{owner}/{repo}/issues",
+                          headers=_headers(token), json=payload, timeout=30)
+        if r.status_code in (200, 201):
+            d = r.json()
+            return {"ok": True, "number": d.get("number"), "url": d.get("html_url", ""), "title": title}
+        return {"ok": False, "error": f"HTTP {r.status_code}: {r.text[:200]}"}
+    except Exception as e:
+        return {"ok": False, "error": f"create_issue error: {e}"}
+
+
+def update_issue(number: int, token: str, body: Optional[str] = None,
+                 state: Optional[str] = None, labels: Optional[list[str]] = None) -> bool:
+    """PATCH an issue's body / state / labels. Returns success."""
+    owner, repo, _ = _cfg()
+    if not token or not owner:
+        return False
+    payload: dict = {}
+    if body is not None:
+        payload["body"] = body
+    if state is not None:
+        payload["state"] = state
+    if labels is not None:
+        payload["labels"] = labels
+    if not payload:
+        return False
+    try:
+        r = requests.patch(f"{API}/repos/{owner}/{repo}/issues/{number}",
+                           headers=_headers(token), json=payload, timeout=30)
+        return r.status_code == 200
+    except Exception as e:
+        logger.warning("[GitHub] update_issue %s failed: %s", number, e)
+        return False
+
+
+def list_issues(state: str = "open", labels: Optional[list[str]] = None) -> list[dict]:
+    """List issues (excluding PRs, which the issues endpoint also returns).
+
+    state: "open", "closed", or "all". `labels` filters to issues having ALL of them.
+    """
+    token = _read_token()
+    owner, repo, _ = _cfg()
+    if not token or not owner:
+        return []
+    out: list[dict] = []
+    params = {"state": state, "per_page": 100}
+    if labels:
+        params["labels"] = ",".join(labels)
+    try:
+        for page in range(1, 6):  # up to 500 issues
+            params["page"] = page
+            r = requests.get(f"{API}/repos/{owner}/{repo}/issues",
+                             headers=_headers(token), params=params, timeout=30)
+            if r.status_code != 200:
+                break
+            batch = r.json()
+            if not batch:
+                break
+            for it in batch:
+                if "pull_request" in it:
+                    continue  # skip PRs — we only want real issues
+                out.append(_issue_dict(it))
+            if len(batch) < 100:
+                break
+    except Exception as e:
+        logger.warning("[GitHub] list_issues failed: %s", e)
+    return out
+
+
+def list_open_issues(labels: Optional[list[str]] = None) -> list[dict]:
+    return list_issues("open", labels)
+
+
+def get_issue(number: int) -> Optional[dict]:
+    """Fetch a single issue by number, or None."""
+    token = _read_token()
+    owner, repo, _ = _cfg()
+    if not token or not owner:
+        return None
+    try:
+        r = requests.get(f"{API}/repos/{owner}/{repo}/issues/{number}",
+                         headers=_headers(token), timeout=30)
+        if r.status_code == 200 and "pull_request" not in r.json():
+            return _issue_dict(r.json())
+    except Exception as e:
+        logger.warning("[GitHub] get_issue %s failed: %s", number, e)
+    return None
+
+
+def add_issue_labels(number: int, labels: list[str], token: str) -> bool:
+    owner, repo, _ = _cfg()
+    if not token or not owner or not labels:
+        return False
+    try:
+        r = requests.post(f"{API}/repos/{owner}/{repo}/issues/{number}/labels",
+                          headers=_headers(token), json={"labels": labels}, timeout=30)
+        return r.status_code in (200, 201)
+    except Exception as e:
+        logger.warning("[GitHub] add_issue_labels %s failed: %s", number, e)
+        return False
+
+
+def remove_issue_label(number: int, label: str, token: str) -> bool:
+    """Remove a single label from an issue (no error if it isn't present)."""
+    owner, repo, _ = _cfg()
+    if not token or not owner:
+        return False
+    try:
+        r = requests.delete(
+            f"{API}/repos/{owner}/{repo}/issues/{number}/labels/{quote(label, safe='')}",
+            headers=_headers(token), timeout=30,
+        )
+        return r.status_code in (200, 404)  # 404 = label wasn't set; treat as fine
+    except Exception as e:
+        logger.warning("[GitHub] remove_issue_label %s failed: %s", number, e)
+        return False
+
+
+def issues_with_open_prs() -> set:
+    """Issue numbers that already have an OPEN agent PR (branch `agent/issue-N-...`).
+
+    Used to mark an issue as in-progress so a second cycle doesn't re-pick it.
+    """
+    nums: set = set()
+    for pr in list_open_agent_prs():
+        m = re.search(r"issue-(\d+)", pr.get("branch", ""))
+        if m:
+            nums.add(int(m.group(1)))
+    return nums
+
+
 def open_pr_for_ticket(
     ticket_id: str,
     title: str,
@@ -291,6 +472,7 @@ def open_pr_for_ticket(
     summary: str,
     token: str,
     how_tested: str = "",
+    closes_issue: Optional[int] = None,
 ) -> dict:
     """
     Commit `files` ({repo_relative_path: content}) to a new branch and open a PR,
@@ -311,7 +493,10 @@ def open_pr_for_ticket(
         return {"ok": False, "error": f"GITHUB_REPO must be 'owner/repo' (got '{os.getenv('GITHUB_REPO','')}')."}
 
     h = _headers(token)
-    branch = f"agent/{ticket_id.lower()}-{_slug(title)}-{int(time.time())}"
+    if closes_issue:
+        branch = f"agent/issue-{closes_issue}-{_slug(title)}-{int(time.time())}"
+    else:
+        branch = f"agent/{_slug(ticket_id)}-{_slug(title)}-{int(time.time())}"
     author = {"name": agent_display_name, "email": agent_email}
 
     try:
@@ -364,7 +549,9 @@ def open_pr_for_ticket(
 
         # 4. Open the PR — best-practices description
         files_md = "\n".join(f"- `{p}`" for p in committed)
+        closes_line = f"Closes #{closes_issue}\n\n" if closes_issue else ""
         body = (
+            f"{closes_line}"
             f"## {ticket_id} — {title}\n\n"
             f"### Summary\n{summary}\n\n"
             f"### Changes ({len(committed)} files)\n{files_md}\n\n"

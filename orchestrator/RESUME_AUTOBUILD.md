@@ -1,14 +1,30 @@
 # Autonomous agents — how they keep working
 
-The agents build and maintain tickets on the **deployed Railway service**. The
-worker thread (`orchestrator/scheduler/tasks.py → run_autobuild_worker`) starts
-~20s after boot and, each cycle, does two things in order:
+**GitHub Issues are the source of truth for the backlog.** Marcus (PM) opens
+issues; the engineers pick the next eligible one, build it, and open a PR that
+`Closes #N`. Merging the PR closes the issue. The old `SPRINT-01.md` board is no
+longer read by the build loop (kept only for the one-time import).
+
+The worker thread (`orchestrator/scheduler/tasks.py → run_autobuild_worker`)
+starts ~20s after boot and, each cycle, does two things in order:
 
 1. **Revise open PRs that got feedback** — if a reviewer requested changes, left
    a comment, or CI failed, the authoring agent updates that PR in place.
-2. **Build the next eligible ticket** — only if there were no revisions to make.
+2. **Build the next eligible issue** — only if there were no revisions to make.
 
-It only acts when there's an eligible ticket/feedback **and** budget remains.
+It only acts when there's eligible work **and** budget remains.
+
+## 0. The issue workflow
+
+- **Marcus creates issues.** `POST /api/pm/create-issues {"goal": "..."}` has the
+  PM break a goal into labelled issues. To seed the backlog from the existing
+  sprint file once, call `POST /api/pm/import-sprint`.
+- **Routing by label:** `backend` → Kwame, `mobile`/`frontend` → Sofia,
+  `deployment`/`devops` → Luca. Marcus also adds `agent-ready`.
+- **Eligibility:** an issue is picked when it's open, has an agent label, isn't
+  already building (no `building` label, no open PR), has the `agent-ready` label
+  if `ISSUE_REQUIRE_READY_LABEL=true`, and every `Blocked by: #N` issue is closed.
+- **Done = the issue is closed** (which merging the PR does automatically).
 
 ## 1. Agents respond to PR reviews (revision loop)
 
@@ -25,16 +41,17 @@ Trigger manually any time: `POST /api/agents/revise-prs`.
 
 ## 2. A redeploy never restarts completed work
 
-GitHub PRs are the durable record of progress (the container's `SPRINT-01.md`
-is rebuilt from the repo on every deploy and can look "Not started").
+Because state lives in GitHub Issues (not on the container), this is automatic:
 
-- On startup the worker calls `reconcile_sprint_from_github()`, which marks every
-  ticket that already has an open/merged PR as ✅ Done in `SPRINT-01.md`.
-- `get_next_ticket()` independently skips any ticket with an open/merged PR and
-  treats a blocker as satisfied once it has a PR.
+- A **closed** issue is done — `get_next_ticket()` only considers open issues.
+- An issue with an **open PR** counts as in progress and is skipped
+  (`issues_with_open_prs()`).
+- On startup the worker calls `reconcile_building_labels()`, which only clears a
+  stale `building` label left by a container that died mid-build (no PR yet), so
+  that issue becomes eligible again instead of stuck.
 
-Net effect: after a redeploy the agents pick up from the next unbuilt ticket and
-never rebuild finished ones.
+Net effect: after a redeploy the agents continue from the next open, unbuilt
+issue and never rebuild finished ones.
 
 ## 3. Coding model — Nemotron 3 Ultra
 
@@ -58,13 +75,22 @@ slug is unavailable on the account or rejects tool calls).
 | `GITHUB_TOKEN_KWAME` | PAT (repo scope) | Backend engineer — authors/revises backend PRs |
 | `GITHUB_TOKEN_LUCA` | PAT | DevOps — CI/infra PRs |
 | `GITHUB_TOKEN_SOFIA` | PAT | Mobile engineer — mobile PRs |
-| `GITHUB_TOKEN_MARCUS` | PAT (different account) | PM — reviews PRs (GitHub blocks self-review, so this must differ from author tokens) |
+| `GITHUB_TOKEN_MARCUS` | PAT (different account) | PM — **creates issues** and reviews PRs (GitHub blocks self-review, so this must differ from author tokens) |
 | `GITHUB_REVIEWER` | your GitHub username | You're auto-requested as reviewer; final merge stays with you |
+| `ISSUE_REQUIRE_READY_LABEL` | `false` | If `true`, only `agent-ready`-labelled issues are picked up |
 | `AUTOBUILD_ENABLED` | `true` | Master switch (default) |
 | `DATABASE_URL` | Railway Postgres URL | Activity/usage tracking (degrades gracefully if unset) |
 
 A single shared `GITHUB_TOKEN` also works, but then Marcus can't review (same
 account can't review its own PR) and all commits show one author.
+
+## Getting started (seed the backlog)
+The agents idle until there are issues. After setting the variables:
+
+1. **Seed from the existing sprint:** `POST /api/pm/import-sprint` — turns the 11
+   `FDA-*` tickets into labelled GitHub issues (with blocked-by links). Run once.
+2. **Or have Marcus plan new work:** `POST /api/pm/create-issues {"goal": "..."}`.
+3. The worker then picks the next eligible issue and opens a PR that closes it.
 
 ## Security — do before the next push
 A real **Gmail app password** is committed in `backend/.env` and a NIM key in

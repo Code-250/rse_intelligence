@@ -322,32 +322,34 @@ async def summary():
 
 @app.get("/api/tickets", tags=["dashboard"])
 async def tickets():
-    """Read Sprint 1 tickets for the dashboard ticket tracker."""
-    sprint_file = Path(__file__).parents[1] / "products" / "financial-doc-analyzer" / "tickets" / "SPRINT-01.md"
-    if not sprint_file.exists():
-        return {"content": "No sprint file found.", "tickets": []}
+    """Ticket tracker for the dashboard — sourced from GitHub Issues.
 
-    content = sprint_file.read_text(encoding="utf-8")
+    Open issues with an agent label are the backlog; a closed issue is Completed;
+    an issue with an open PR or the 'building' label is In Progress.
+    """
+    from orchestrator.channels.github import github_configured, list_issues, issues_with_open_prs
+    from orchestrator.agents.executor import _agent_from_labels, OWNER_KEYWORD, BUILDING_LABEL
 
-    # Parse the summary table for structured data
+    if not github_configured():
+        return {"tickets": [], "note": "Connect GitHub (GITHUB_REPO + a token) — issues are the backlog."}
+
+    pr_nums = issues_with_open_prs()
     parsed = []
-    in_table = False
-    for line in content.splitlines():
-        if line.startswith("| FDA-") or line.startswith("| [FDA-"):
-            in_table = True
-            parts = [p.strip() for p in line.split("|") if p.strip()]
-            if len(parts) >= 4:
-                status = parts[3] if len(parts) > 3 else "Unknown"
-                done = "✅" in status
-                parsed.append({
-                    "id":     parts[0].replace("[", "").replace("]", ""),
-                    "title":  parts[1],
-                    "owner":  parts[2],
-                    "done":   done,
-                    "status": "Completed" if done else "In Progress",
-                })
-
-    return {"tickets": parsed, "raw": content}
+    for it in sorted(list_issues(state="all"), key=lambda i: i["number"]):
+        agent = _agent_from_labels(it["labels"])
+        if not agent:
+            continue  # only show agent-actionable issues
+        done = it["state"] == "closed"
+        in_progress = (not done) and (it["number"] in pr_nums or BUILDING_LABEL in it["labels"])
+        parsed.append({
+            "id":     f"#{it['number']}",
+            "title":  it["title"],
+            "owner":  OWNER_KEYWORD.get(agent, agent),
+            "done":   done,
+            "status": "Completed" if done else ("In Progress" if in_progress else "Open"),
+            "url":    it.get("html_url", ""),
+        })
+    return {"tickets": parsed}
 
 
 @app.get("/api/usage", tags=["dashboard"])
@@ -416,40 +418,58 @@ async def revise_prs():
     return {"revised_count": len(revised), "results": results}
 
 
+class CreateIssuesRequest(BaseModel):
+    goal: str
+
+
+@app.post("/api/pm/create-issues", tags=["agents"])
+async def pm_create_issues_endpoint(req: CreateIssuesRequest):
+    """Marcus (PM) breaks a goal into tickets and opens them as GitHub issues.
+
+    Each issue gets an agent label (backend/mobile/deployment) so an engineer can
+    pick it up, plus the readiness label, with 'Blocked by: #N' links between them.
+    """
+    import anyio
+    from orchestrator.agents.executor import pm_create_issues
+
+    return await anyio.to_thread.run_sync(pm_create_issues, req.goal)
+
+
+@app.post("/api/pm/import-sprint", tags=["agents"])
+async def pm_import_sprint_endpoint():
+    """One-time migration: turn the legacy SPRINT-01.md tickets into GitHub issues.
+
+    Use this once to seed the issue backlog from the existing sprint file. Safe to
+    re-run — tickets already imported (by FDA id in an issue title) are skipped.
+    """
+    import anyio
+    from orchestrator.agents.executor import pm_import_sprint_to_issues
+
+    return await anyio.to_thread.run_sync(pm_import_sprint_to_issues)
+
+
 @app.get("/api/pr-queue", tags=["dashboard"])
 async def pr_queue():
-    """Read PR queue for the dashboard and parse the 'Awaiting Approval' table into structured PRs."""
-    pr_file = Path(__file__).parents[1] / "products" / "financial-doc-analyzer" / "tickets" / "PR_QUEUE.md"
-    if not pr_file.exists():
-        return {"content": "No PRs yet.", "prs": []}
+    """PR review queue for the dashboard — the agents' open PRs awaiting your review."""
+    import re
+    from orchestrator.channels.github import github_configured, list_open_agent_prs
 
-    content = pr_file.read_text(encoding="utf-8")
+    if not github_configured():
+        return {"prs": [], "note": "Connect GitHub (GITHUB_REPO + a token) to see open PRs."}
 
-    # Parse rows from the 'Awaiting Richard's Approval' table only (stop at next ## section)
     prs = []
-    in_awaiting = False
-    for line in content.splitlines():
-        if line.startswith("## "):
-            in_awaiting = "Awaiting" in line
-            continue
-        if not in_awaiting:
-            continue
-        s = line.strip()
-        if not s.startswith("|") or s.startswith("|---") or s.startswith("| PR #"):
-            continue
-        cells = [c.strip() for c in s.strip("|").split("|")]
-        if len(cells) < 6 or cells[0] in ("—", ""):
-            continue
+    for pr in list_open_agent_prs():
+        m = re.search(r"issue-(\d+)", pr.get("branch", ""))
         prs.append({
-            "id":      cells[0],
-            "title":   cells[1],
-            "agent":   cells[2],
-            "risk":    cells[3],
-            "opened":  cells[4],
-            "summary": cells[5],
+            "id":      f"PR #{pr.get('number')}",
+            "title":   pr.get("title", ""),
+            "agent":   "",  # PR author isn't needed for the queue view
+            "risk":    "Standard",
+            "opened":  "",
+            "summary": f"Closes #{m.group(1)}" if m else pr.get("branch", ""),
+            "url":     pr.get("html_url", ""),
         })
-
-    return {"content": content, "prs": prs}
+    return {"prs": prs}
 
 
 # ── WhatsApp Webhook ──────────────────────────────────────────────────────────

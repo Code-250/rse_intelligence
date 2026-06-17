@@ -84,12 +84,49 @@ IMPLEMENTER_ORDER = ["backend-ai-dev", "deployment", "mobile-frontend-dev"]
 
 
 def agent_for_owner_kw(owner_kw: str) -> str:
-    """Resolve the implementer agent for a sprint-table owner keyword.
+    """Resolve the implementer agent for an owner keyword.
 
     Falls back to the backend engineer for anything unrecognised so revision
     work is never dropped just because a label is unexpected.
     """
     return KEYWORD_OWNER.get((owner_kw or "").lower(), "backend-ai-dev")
+
+
+# ── GitHub Issues are the source of truth ─────────────────────────────────────
+# Each backlog item is a GitHub issue. An "agent label" routes it to an engineer.
+# Marcus (PM) opens issues; engineers pick the next eligible one and open a PR
+# that closes it. Status lives in GitHub, so it survives redeploys for free.
+ISSUE_AGENT_LABELS = {
+    "backend": "backend-ai-dev",
+    "mobile": "mobile-frontend-dev",
+    "frontend": "mobile-frontend-dev",
+    "deployment": "deployment",
+    "devops": "deployment",
+}
+# Label applied while an agent is actively building an issue (prevents double-pick).
+BUILDING_LABEL = os.getenv("ISSUE_BUILDING_LABEL", "building")
+# Optional readiness gate: when required, only issues carrying this label are picked.
+READY_LABEL = os.getenv("ISSUE_READY_LABEL", "agent-ready")
+REQUIRE_READY = os.getenv("ISSUE_REQUIRE_READY_LABEL", "false").lower() == "true"
+
+
+def _agent_from_labels(labels: list[str]) -> Optional[str]:
+    """Return the implementer agent for an issue's labels, or None if not routable."""
+    for lbl in labels:
+        agent = ISSUE_AGENT_LABELS.get((lbl or "").lower())
+        if agent:
+            return agent
+    return None
+
+
+def _parse_blocked_by(body: str) -> list[int]:
+    """Extract blocker issue numbers from a 'Blocked by: #N, #M' line in the body."""
+    if not body:
+        return []
+    m = re.search(r"blocked\s*by\s*:?\s*(.+)", body, re.I)
+    if not m:
+        return []
+    return [int(n) for n in re.findall(r"#(\d+)", m.group(1))]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -153,111 +190,137 @@ def _parse_detail_blocks(text: str) -> dict:
     return blocks
 
 
-def get_next_ticket(agent_name: Optional[str] = None) -> Optional[dict]:
-    """
-    Return the next ticket an agent should implement, or None.
-
-    A ticket is eligible when it is not started, not in progress, and every
-    ticket it is blocked by is already done. Tickets are considered in sprint
-    order. If agent_name is given, only that agent's tickets are considered.
-    """
-    if not SPRINT_FILE.exists():
-        return None
-    text = SPRINT_FILE.read_text(encoding="utf-8")
-    rows = _parse_summary_table(text)
-    details = _parse_detail_blocks(text)
-    done_ids = {r["id"] for r in rows if r["done"]}
-
-    # Durable progress: tickets that already have an open/merged PR on GitHub.
-    # This survives redeploys (the container's SPRINT-01.md does not), so agents
-    # continue from where they left off instead of rebuilding finished work.
-    try:
-        from orchestrator.channels.github import tickets_with_prs
-        pr_ids = tickets_with_prs()
-    except Exception:
-        pr_ids = set()
-
-    # A blocker counts as satisfied if it's marked done OR already has a PR.
-    satisfied_ids = done_ids | pr_ids
-
-    owner_kw = OWNER_KEYWORD.get(agent_name) if agent_name else None
-
-    for row in rows:
-        if owner_kw and row["owner_kw"] != owner_kw:
-            continue
-        if row["done"] or row["in_progress"] or row["id"] in pr_ids:
-            continue
-        blockers = details.get(row["id"], {}).get("blocked_by", [])
-        if all(b in satisfied_ids for b in blockers):
-            detail = details.get(row["id"], {})
-            return {
-                "id": row["id"],
-                "title": detail.get("title") or row["title"],
-                "owner_kw": row["owner_kw"],
-                "blocked_by": blockers,
-                "full_text": detail.get("full_text", ""),
-            }
-    return None
-
-
-def get_ticket(ticket_id: str) -> Optional[dict]:
-    """Return full info for ANY ticket by id (title, owner_kw, blocked_by, full_text).
-
-    Unlike get_next_ticket this does not consider eligibility — it is used to look
-    up the spec for a ticket that already has an open PR so the agent can revise it.
-    """
-    if not SPRINT_FILE.exists():
-        return None
-    text = SPRINT_FILE.read_text(encoding="utf-8")
-    rows = {r["id"]: r for r in _parse_summary_table(text)}
-    details = _parse_detail_blocks(text)
-    row = rows.get(ticket_id)
-    detail = details.get(ticket_id, {})
-    if not row and not detail:
-        return None
+def _issue_to_ticket(issue: dict, agent: str) -> dict:
+    """Adapt a GitHub issue into the ticket dict the build loop expects."""
     return {
-        "id": ticket_id,
-        "title": detail.get("title") or (row or {}).get("title", ticket_id),
-        "owner_kw": (row or {}).get("owner_kw", ""),
-        "blocked_by": detail.get("blocked_by", []),
-        "full_text": detail.get("full_text", ""),
+        "id": f"#{issue['number']}",
+        "issue_number": issue["number"],
+        "title": issue["title"],
+        "owner_kw": OWNER_KEYWORD.get(agent, ""),
+        "blocked_by": _parse_blocked_by(issue["body"]),
+        "full_text": f"Issue #{issue['number']}: {issue['title']}\n\n{issue['body']}",
+        "labels": issue.get("labels", []),
+        "html_url": issue.get("html_url", ""),
     }
 
 
-def reconcile_sprint_from_github() -> int:
-    """Mark tickets that already have an open/merged PR as Done in SPRINT-01.md.
-
-    Called once at worker startup. The deployed container is rebuilt from the repo
-    on every redeploy, so its SPRINT-01.md can show finished tickets as "Not
-    started". GitHub PRs are the durable record of progress, so we sync the sprint
-    board from them — this is what lets a redeploy continue from where we left off
-    instead of rebuilding completed tickets. Returns the number of tickets updated.
+def get_next_ticket(agent_name: Optional[str] = None) -> Optional[dict]:
     """
-    try:
-        from orchestrator.channels.github import tickets_with_prs
-        pr_ids = tickets_with_prs()
-    except Exception as e:
-        logger.warning("[Executor] reconcile skipped (GitHub unavailable): %s", e)
-        return 0
-    if not pr_ids or not SPRINT_FILE.exists():
+    Return the next GitHub ISSUE an agent should implement, or None.
+
+    GitHub Issues are the source of truth. An issue is eligible when it is open,
+    routable to an agent via an agent label, not already being built (no 'building'
+    label and no open PR), carries the readiness label if one is required, and every
+    issue it is "Blocked by: #N" is already closed. Issues are taken in ascending
+    number (creation) order. Because state lives in GitHub, this is correct across
+    redeploys with no local bookkeeping.
+    """
+    from orchestrator.channels.github import (
+        github_configured, list_open_issues, issues_with_open_prs,
+    )
+    if not github_configured():
+        return None
+
+    open_issues = sorted(list_open_issues(), key=lambda i: i["number"])
+    open_numbers = {i["number"] for i in open_issues}
+    pr_issue_nums = issues_with_open_prs()
+
+    for issue in open_issues:
+        labels = issue["labels"]
+        agent = _agent_from_labels(labels)
+        if not agent:
+            continue  # not an agent-actionable issue
+        if agent_name and agent != agent_name:
+            continue
+        if REQUIRE_READY and READY_LABEL not in labels:
+            continue
+        if BUILDING_LABEL in labels or issue["number"] in pr_issue_nums:
+            continue  # already in progress
+        blockers = _parse_blocked_by(issue["body"])
+        if any(b in open_numbers for b in blockers):
+            continue  # a blocker is still open
+        return _issue_to_ticket(issue, agent)
+    return None
+
+
+def get_ticket(ticket_ref) -> Optional[dict]:
+    """Look up an issue's spec by number (int) or '#N' string.
+
+    Used to fetch the spec for an issue that already has an open PR so the agent
+    can revise it. Returns a ticket dict or None.
+    """
+    from orchestrator.channels.github import get_issue
+    num = ticket_ref
+    if isinstance(ticket_ref, str):
+        m = re.search(r"\d+", ticket_ref)
+        if not m:
+            return None
+        num = int(m.group(0))
+    issue = get_issue(int(num))
+    if not issue:
+        return None
+    agent = _agent_from_labels(issue["labels"]) or "backend-ai-dev"
+    return _issue_to_ticket(issue, agent)
+
+
+def reconcile_building_labels() -> int:
+    """Clear stale 'building' labels left by a redeploy that died mid-build.
+
+    GitHub issues are durable, so completed (closed) and in-progress (open PR)
+    state already survives a redeploy with no action needed. The only ephemeral
+    risk is an issue left labelled 'building' when the container stopped before a
+    PR was opened. On startup we remove 'building' from any open issue that has NO
+    open PR, so it becomes eligible again instead of being stuck. Returns the count
+    of issues un-stuck.
+    """
+    from orchestrator.channels.github import (
+        github_configured, list_open_issues, issues_with_open_prs, remove_issue_label,
+        agent_token,
+    )
+    if not github_configured():
         return 0
 
-    done_now = {r["id"] for r in _parse_summary_table(SPRINT_FILE.read_text(encoding="utf-8")) if r["done"]}
-    updated = 0
-    for tid in sorted(pr_ids):
-        if tid in done_now:
-            continue
-        if set_ticket_status(tid, "✅ Done"):
-            updated += 1
-            logger.info("[Executor] reconcile: %s already has a PR — marked Done", tid)
-    if updated:
+    pr_issue_nums = issues_with_open_prs()
+    cleared = 0
+    for issue in list_open_issues([BUILDING_LABEL]):
+        if issue["number"] in pr_issue_nums:
+            continue  # genuinely in progress — a PR exists
+        agent = _agent_from_labels(issue["labels"]) or "backend-ai-dev"
+        if remove_issue_label(issue["number"], BUILDING_LABEL, agent_token(agent)):
+            cleared += 1
+            logger.info("[Executor] reconcile: cleared stale 'building' on issue #%s", issue["number"])
+    if cleared:
         log_activity_safe("coordinator", "reconcile",
-                          f"Synced {updated} ticket(s) from GitHub on startup — completed work will not be rebuilt")
-    return updated
+                          f"Cleared {cleared} stale 'building' label(s) on startup — those issues are eligible again")
+    return cleared
+
+
+def _mark_building(issue_number: int, agent: str) -> None:
+    """Label an issue as actively being built (best-effort)."""
+    try:
+        from orchestrator.channels.github import add_issue_labels, ensure_label, agent_token
+        token = agent_token(agent)
+        ensure_label(BUILDING_LABEL, token, color="fbca04")  # create if missing
+        add_issue_labels(issue_number, [BUILDING_LABEL], token)
+    except Exception as e:
+        logger.debug("[Executor] could not add building label to #%s: %s", issue_number, e)
+
+
+def _unmark_building(issue_number: int, agent: str) -> None:
+    """Remove the 'building' label from an issue (best-effort)."""
+    try:
+        from orchestrator.channels.github import remove_issue_label, agent_token
+        remove_issue_label(issue_number, BUILDING_LABEL, agent_token(agent))
+    except Exception as e:
+        logger.debug("[Executor] could not remove building label from #%s: %s", issue_number, e)
 
 
 def set_ticket_status(ticket_id: str, status_text: str) -> bool:
-    """Rewrite the status cell for a ticket in the summary table. Returns success."""
+    """Rewrite the status cell for a ticket in the summary table. Returns success.
+
+    Retained for the sprint-import migration (which reads the legacy markdown
+    board); the live issue-driven loop no longer uses it.
+    """
     if not SPRINT_FILE.exists():
         return False
     lines = SPRINT_FILE.read_text(encoding="utf-8").splitlines()
@@ -740,10 +803,11 @@ def implement_next_ticket(agent_name: Optional[str] = None) -> dict:
         }
 
     identity = get_identity(chosen_agent)
-    logger.info("[Executor] %s picking up %s — %s", identity["name"], ticket["id"], ticket["title"])
+    issue_number = ticket["issue_number"]
+    logger.info("[Executor] %s picking up issue %s — %s", identity["name"], ticket["id"], ticket["title"])
 
-    # Mark in progress so concurrent runs don't double-pick
-    set_ticket_status(ticket["id"], "🏗️ In progress")
+    # Mark the issue 'building' so a concurrent cycle doesn't double-pick it.
+    _mark_building(issue_number, chosen_agent)
     log_activity_safe(chosen_agent, "ticket_started", f"{ticket['id']} — {ticket['title']}")
 
     system_prompt = _build_executor_system_prompt(chosen_agent, ticket)
@@ -756,7 +820,7 @@ def implement_next_ticket(agent_name: Optional[str] = None) -> dict:
         loop = _run_loop_nim(chosen_agent, system_prompt, user_prompt, ticket["id"])
 
     if loop.get("error"):
-        set_ticket_status(ticket["id"], "🔲 Not started")  # revert so it can be retried
+        _unmark_building(issue_number, chosen_agent)  # release so it can be retried
         logger.error("[Executor] %s loop error: %s", ticket["id"], loop["error"])
         return {"status": "error", "ticket_id": ticket["id"], "agent_name": chosen_agent,
                 "message": loop["error"], "cost_usd": round(loop.get("total_cost", 0.0), 4)}
@@ -773,10 +837,10 @@ def implement_next_ticket(agent_name: Optional[str] = None) -> dict:
     pr_error = ""
 
     if finished:
-        # Push the agent's work to GitHub as a real, reviewable pull request.
-        # Only mark the ticket Done if the PR actually opens — otherwise the code
-        # (which lives only on the ephemeral container) would be lost forever and
-        # never retried. A failed/unconfigured push leaves the ticket retryable.
+        # Push the agent's work as a PR that CLOSES the issue. Merging the PR will
+        # auto-close the issue (our "done" signal). Only release the issue if the PR
+        # actually opens — otherwise the code (on the ephemeral container) is lost
+        # and the issue should remain retryable.
         from orchestrator.channels.github import open_pr_for_ticket, github_configured, agent_token
         dev_token = agent_token(chosen_agent)
         if not github_configured():
@@ -796,6 +860,7 @@ def implement_next_ticket(agent_name: Optional[str] = None) -> dict:
                 summary=finish_summary,
                 how_tested=how_tested,
                 token=dev_token,
+                closes_issue=issue_number,
             )
             if pr.get("ok"):
                 pr_url = pr["pr_url"]
@@ -803,24 +868,24 @@ def implement_next_ticket(agent_name: Optional[str] = None) -> dict:
                 pr_error = pr.get("error", "PR push failed.")
 
         if pr_url:
-            set_ticket_status(ticket["id"], "✅ Done")
-            add_pr_queue_entry(ticket["id"], ticket["title"], chosen_agent, f"{pr_url} — {finish_summary}", files_changed)
+            # An open PR now represents progress (issues_with_open_prs), so drop the
+            # transient 'building' label. The issue closes when the PR is merged.
+            _unmark_building(issue_number, chosen_agent)
             log_activity_safe(chosen_agent, "pr_opened", f"PR opened for {ticket['id']}: {pr_url}")
             log_activity_safe(chosen_agent, "ticket_completed", f"{ticket['id']} done — {len(files_changed)} files")
             _pm_review_pr(pr, ticket, chosen_agent, dev_token, finish_summary, files_changed)
             status = "completed"
         else:
-            # Built but couldn't deliver — revert so it can be retried once GitHub is fixed.
-            set_ticket_status(ticket["id"], "🔲 Not started")
+            # Built but couldn't deliver — release so it can be retried once GitHub is fixed.
+            _unmark_building(issue_number, chosen_agent)
             logger.warning("[Executor] %s built but not delivered: %s", ticket["id"], pr_error)
             log_activity_safe(chosen_agent, "ticket_paused", f"{ticket['id']} built but PR not opened: {pr_error[:120]}")
             status = "pr_failed"
     else:
-        # Did not finish within the budget — revert to Not started so the ticket
-        # isn't permanently stuck blocking the rest of the sprint. Partial work is
-        # discarded (no PR) to avoid half-baked branches.
-        set_ticket_status(ticket["id"], "🔲 Not started")
-        log_activity_safe(chosen_agent, "ticket_paused", f"{ticket['id']} stopped early ({len(files_changed)} files, ${total_cost:.2f}) — reverted to Not started")
+        # Did not finish within the budget — release the issue so it isn't stuck
+        # blocking the rest of the backlog. Partial work is discarded (no PR).
+        _unmark_building(issue_number, chosen_agent)
+        log_activity_safe(chosen_agent, "ticket_paused", f"{ticket['id']} stopped early ({len(files_changed)} files, ${total_cost:.2f}) — released")
         status = "stopped_early"
 
     return {
@@ -891,19 +956,20 @@ def revise_one_pr(pr: dict) -> dict:
     pr_number = pr.get("number")
     head_sha = pr.get("head_sha", "")
 
-    m = re.search(r"fda-(\d+)", branch, re.I) or re.search(r"FDA-(\d+)", pr.get("title", ""))
+    m = re.search(r"issue-(\d+)", branch, re.I)
     if not m:
-        return {"status": "skipped", "branch": branch, "reason": "no ticket id in branch/title"}
-    ticket_id = f"FDA-{m.group(1).zfill(3)}"
+        return {"status": "skipped", "branch": branch, "reason": "no issue number in branch"}
+    issue_number = int(m.group(1))
+    ticket_id = f"#{issue_number}"
 
     # Only act when there is NEW feedback since the last commit (prevents loops).
     feedback = get_pr_feedback(pr_number, head_sha)
     if not feedback.get("needs_revision"):
         return {"status": "no_feedback", "ticket_id": ticket_id, "pr_number": pr_number}
 
-    ticket = get_ticket(ticket_id)
+    ticket = get_ticket(issue_number)
     if not ticket:
-        return {"status": "skipped", "ticket_id": ticket_id, "reason": "ticket spec not found in SPRINT-01.md"}
+        return {"status": "skipped", "ticket_id": ticket_id, "reason": "issue not found on GitHub"}
 
     agent_name = agent_for_owner_kw(ticket["owner_kw"])
     identity = get_identity(agent_name)
@@ -988,6 +1054,153 @@ def revise_open_prs(max_prs: int = 3) -> list[dict]:
         if r.get("status") in ("revised", "revise_failed", "error"):
             results.append(r)
     return results
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Marcus (PM) — create the backlog as GitHub issues
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _ensure_agent_labels(token: str) -> None:
+    """Make sure the agent/ready/building labels exist so filtering works."""
+    from orchestrator.channels.github import ensure_label
+    palette = {
+        "backend": "1d76db", "mobile": "0e8a16", "deployment": "5319e7",
+        READY_LABEL: "0e8a16", BUILDING_LABEL: "fbca04",
+    }
+    for name, color in palette.items():
+        ensure_label(name, token, color=color)
+
+
+def pm_import_sprint_to_issues() -> dict:
+    """Migrate the legacy SPRINT-01.md tickets into GitHub issues (Marcus authors).
+
+    One issue per ticket, labelled with its agent + the readiness label, with
+    'Blocked by: #N' links resolved between the created issues. Idempotent: tickets
+    whose FDA id already appears in an existing issue title are skipped.
+    """
+    from orchestrator.channels.github import (
+        github_configured, create_issue, update_issue, list_issues, get_issue,
+    )
+    if not github_configured():
+        return {"ok": False, "error": "GitHub not configured (set GITHUB_REPO + a token)."}
+    pm_token = agent_token("project-manager")
+    if not pm_token:
+        return {"ok": False, "error": "No PM token — set GITHUB_TOKEN_MARCUS (or shared GITHUB_TOKEN)."}
+    if not SPRINT_FILE.exists():
+        return {"ok": False, "error": "SPRINT-01.md not found."}
+
+    _ensure_agent_labels(pm_token)
+    text = SPRINT_FILE.read_text(encoding="utf-8")
+    rows = _parse_summary_table(text)
+    details = _parse_detail_blocks(text)
+    existing_titles = " ".join(i["title"] for i in list_issues("all"))
+
+    created: dict[str, int] = {}   # FDA id -> issue number
+    results: list[dict] = []
+    for row in rows:
+        fda = row["id"]
+        if fda in existing_titles:
+            results.append({"ticket": fda, "skipped": "already imported"})
+            continue
+        detail = details.get(fda, {})
+        owner_kw = (row["owner_kw"] or "").lower()
+        labels = [owner_kw] if owner_kw in ISSUE_AGENT_LABELS else []
+        if READY_LABEL:
+            labels.append(READY_LABEL)
+        title = f"{fda} {detail.get('title') or row['title']}".strip()
+        body = detail.get("full_text", "") or title
+        r = create_issue(title, body, labels, pm_token)
+        if r.get("ok"):
+            created[fda] = r["number"]
+            results.append({"ticket": fda, "issue": r["number"], "url": r["url"]})
+        else:
+            results.append({"ticket": fda, "error": r.get("error")})
+
+    # Second pass: link blockers now that every FDA id has an issue number.
+    for row in rows:
+        fda = row["id"]
+        if fda not in created:
+            continue
+        blk_nums = [created[b] for b in details.get(fda, {}).get("blocked_by", []) if b in created]
+        if not blk_nums:
+            continue
+        issue = get_issue(created[fda])
+        if not issue:
+            continue
+        new_body = issue["body"].rstrip() + "\n\nBlocked by: " + ", ".join(f"#{n}" for n in blk_nums)
+        update_issue(created[fda], pm_token, body=new_body)
+
+    log_activity_safe("project-manager", "issues_created",
+                      f"Imported {len(created)} sprint ticket(s) into GitHub issues")
+    return {"ok": True, "created": len(created), "results": results}
+
+
+def pm_create_issues(goal: str) -> dict:
+    """Marcus breaks a goal into tickets and opens them as GitHub issues."""
+    import json as _json
+
+    from orchestrator.channels.github import github_configured, create_issue, update_issue
+    from orchestrator.agents.runner import run_agent
+
+    if not github_configured():
+        return {"ok": False, "error": "GitHub not configured (set GITHUB_REPO + a token)."}
+    pm_token = agent_token("project-manager")
+    if not pm_token:
+        return {"ok": False, "error": "No PM token — set GITHUB_TOKEN_MARCUS (or shared GITHUB_TOKEN)."}
+
+    prompt = (
+        f"You are Marcus, the PM. Break this goal into discrete, independently shippable "
+        f"engineering tickets:\n\n{goal}\n\n"
+        "Return ONLY a JSON array — no prose. Each element:\n"
+        '{"title": "short imperative title", '
+        '"agent": "backend" | "mobile" | "deployment", '
+        '"body": "markdown with a Description and numbered Acceptance Criteria", '
+        '"blocked_by": ["exact titles of other tickets in this list, or empty"]}\n'
+        "Keep each ticket small. Maximum 8 tickets."
+    )
+    raw = run_agent("project-manager", prompt, [])
+    try:
+        match = re.search(r"\[.*\]", raw, re.DOTALL)
+        drafts = _json.loads(match.group(0)) if match else []
+    except Exception as e:
+        return {"ok": False, "error": f"Could not parse PM output as JSON: {e}", "raw": raw[:500]}
+
+    if not isinstance(drafts, list) or not drafts:
+        return {"ok": False, "error": "PM produced no tickets.", "raw": raw[:500]}
+
+    _ensure_agent_labels(pm_token)
+    created: dict[str, int] = {}   # title -> number
+    results: list[dict] = []
+    for d in drafts[:8]:
+        agent_label = str(d.get("agent", "")).lower()
+        labels = [agent_label] if agent_label in ISSUE_AGENT_LABELS else []
+        if READY_LABEL:
+            labels.append(READY_LABEL)
+        title = (d.get("title") or "Untitled ticket").strip()
+        body = d.get("body") or title
+        r = create_issue(title, body, labels, pm_token)
+        if r.get("ok"):
+            created[title] = r["number"]
+            results.append({"title": title, "issue": r["number"], "url": r["url"]})
+        else:
+            results.append({"title": title, "error": r.get("error")})
+
+    # Resolve blocked_by (by title) into "Blocked by: #N" links.
+    for d in drafts[:8]:
+        title = (d.get("title") or "").strip()
+        if title not in created:
+            continue
+        blk_nums = [created[t] for t in (d.get("blocked_by") or []) if t in created]
+        if not blk_nums:
+            continue
+        from orchestrator.channels.github import get_issue
+        issue = get_issue(created[title])
+        if issue:
+            new_body = issue["body"].rstrip() + "\n\nBlocked by: " + ", ".join(f"#{n}" for n in blk_nums)
+            update_issue(created[title], pm_token, body=new_body)
+
+    log_activity_safe("project-manager", "issues_created", f"Opened {len(created)} issue(s) from goal")
+    return {"ok": True, "created": len(created), "results": results}
 
 
 def _pm_review_pr(pr: dict, ticket: dict, author_agent: str, author_token: str,

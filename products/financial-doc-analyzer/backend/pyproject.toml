@@ -1,0 +1,25 @@
+[project]
+name = "financial-doc-analyzer-backend"
+version = "0.1.0"
+description = "Financial Document Analyzer — FastAPI backend (RSE Intelligence Product 1)"
+requires-python = ">=3.11"
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+# Exclude generated / vendored code from linting.
+extend-exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+# pycodestyle (E), pyflakes (F), isort (I), pyupgrade (UP), bugbear (B).
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]  # line length handled by black
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["."]
