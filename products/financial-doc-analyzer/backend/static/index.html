@@ -78,7 +78,7 @@
   <section class="card">
     <div id="drop" class="drop" tabindex="0" role="button" aria-label="Upload a PDF">
       <strong>Drop a PDF here, or click to choose</strong>
-      <small>Financial reports work best · PDF up to 15&nbsp;MB · no sign-up needed</small>
+      <small>Financial reports work best · scanned PDFs supported · up to 15&nbsp;MB · no sign-up</small>
     </div>
     <input id="fileInput" type="file" accept="application/pdf,.pdf" hidden />
 
@@ -93,7 +93,7 @@
     <div class="trust">
       <span><i class="dot"></i> No account required</span>
       <span><i class="dot"></i> We don't store your document</span>
-      <span><i class="dot"></i> Results in ~10–20s</span>
+      <span><i class="dot"></i> Results in ~10–30s</span>
     </div>
   </section>
 
@@ -179,7 +179,8 @@
       var data = await res.json();
       if(!res.ok){ throw new Error(data.detail || 'Analysis failed.'); }
       analysisEl.innerHTML = renderMd(data.analysis_markdown || '');
-      metaEl.textContent = data.pages + ' pages · ' + (data.processing_ms/1000).toFixed(1) + 's · model: ' + data.model_used;
+      metaEl.textContent = data.pages + ' pages · ' + (data.processing_ms/1000).toFixed(1) + 's · '
+        + (data.method === 'ocr' ? 'OCR · ' : '') + 'model: ' + data.model_used;
       resultEl.classList.add('show');
       resultEl.scrollIntoView({behavior:'smooth', block:'start'});
       track('analyze_succeeded', {pages:data.pages, seconds:+((Date.now()-t0)/1000).toFixed(1)});

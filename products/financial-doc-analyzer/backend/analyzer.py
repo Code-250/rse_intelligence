@@ -1,17 +1,22 @@
 """
 Financial document analysis.
 
-Extracts text from an uploaded PDF (pdfplumber) and asks an NVIDIA NIM model to
-produce a concise, plain-English financial analysis. Free NIM models keep cost
-near zero while we validate demand.
+Reads a PDF and produces a concise, plain-English financial analysis with an
+NVIDIA NIM model. Two extraction paths, tried in order:
+
+  1. Native text  — for normal text-based PDFs (pypdfium2; robust page parsing).
+  2. OCR          — for SCANNED / image-only PDFs (very common for financial
+                    filings): each page is rendered to an image and read with
+                    Tesseract. This is what lets ClariFi handle scans.
+
+Free NIM models keep cost near zero while we validate demand.
 
 Public API:
-    extract_text(pdf_bytes) -> (text, page_count)
+    extract_text(pdf_bytes) -> (text, page_count, method)
     analyze_pdf_bytes(pdf_bytes, filename) -> dict
 """
 from __future__ import annotations
 
-import io
 import logging
 import os
 import time
@@ -19,16 +24,19 @@ import time
 import requests
 
 try:
-    import pdfplumber
-except ImportError:  # pragma: no cover - surfaced clearly at runtime
-    pdfplumber = None
+    import pypdfium2 as pdfium
+except ImportError:  # pragma: no cover
+    pdfium = None
+try:
+    import pytesseract
+except ImportError:  # pragma: no cover
+    pytesseract = None
 
 logger = logging.getLogger(__name__)
 
 NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
 NIM_API_KEY = os.getenv("NVIDIA_NIM_API_KEY", "")
 
-# Models tried in order on 404 / tool-unsupported. Override with FDA_ANALYSIS_MODEL.
 ANALYSIS_MODELS = [
     m.strip() for m in os.getenv(
         "FDA_ANALYSIS_MODEL",
@@ -36,17 +44,25 @@ ANALYSIS_MODELS = [
     ).split(",") if m.strip()
 ]
 
-# Cap how much document text we send (controls latency + cost). Most reports fit.
+# How much document text to send to the model (controls latency + cost).
 MAX_CHARS = int(os.getenv("FDA_MAX_ANALYSIS_CHARS", "24000"))
+# Below this many native-text chars we assume the PDF is scanned and run OCR.
+TEXT_MIN_CHARS = int(os.getenv("FDA_TEXT_MIN_CHARS", "120"))
+# Page caps (OCR is ~1-3s/page — bound the work so uploads stay responsive).
+MAX_TEXT_PAGES = int(os.getenv("FDA_MAX_TEXT_PAGES", "40"))
+MAX_OCR_PAGES = int(os.getenv("FDA_MAX_OCR_PAGES", "15"))
+OCR_DPI = int(os.getenv("FDA_OCR_DPI", "200"))
 
 SYSTEM_PROMPT = (
     "You are a senior financial analyst. You read a financial document (annual report, "
     "earnings release, financial statement, or similar) and produce a clear, plain-English "
     "analysis for a non-expert investor. Be accurate and concise. Never invent figures that "
-    "are not in the document. Write in markdown with EXACTLY these sections:\n\n"
+    "are not in the document. If the text was produced by OCR it may contain small character "
+    "errors — interpret sensibly and flag any figure you are unsure about. Write in markdown "
+    "with EXACTLY these sections:\n\n"
     "## Summary\n(2-4 sentences on what this document is and the headline takeaway)\n\n"
-    "## Key Figures\n(bullet list of the most important numbers you found: revenue, profit/loss, "
-    "margins, cash, debt, growth — with the figure. Write 'Not stated' if a key figure is absent.)\n\n"
+    "## Key Figures\n(bullet list of the most important numbers: revenue, profit/loss, margins, "
+    "cash, debt, growth — with the figure. Write 'Not stated' if a key figure is absent.)\n\n"
     "## Risks & Red Flags\n(bullet list of concerns: declining metrics, high debt, going-concern "
     "language, unusual items. If none are evident, say so.)\n\n"
     "## Bottom Line\n(1-2 sentence verdict)\n\n"
@@ -59,30 +75,62 @@ class AnalysisError(Exception):
     """Raised when a document cannot be analysed."""
 
 
-def extract_text(pdf_bytes: bytes) -> tuple[str, int]:
-    """Extract concatenated text and page count from a PDF.
+def _native_text(doc) -> str:
+    parts = []
+    for i in range(min(len(doc), MAX_TEXT_PAGES)):
+        try:
+            tp = doc[i].get_textpage()
+            parts.append(tp.get_text_range() or "")
+        except Exception:  # noqa: BLE001
+            parts.append("")
+    return "\n\n".join(p for p in parts if p.strip()).strip()
 
-    Raises AnalysisError if the PDF can't be read or has no extractable text
-    (e.g. a scanned image with no OCR layer).
+
+def _ocr_text(doc) -> str:
+    if pytesseract is None:
+        raise AnalysisError("OCR engine unavailable on the server.")
+    parts = []
+    scale = OCR_DPI / 72.0
+    for i in range(min(len(doc), MAX_OCR_PAGES)):
+        try:
+            pil = doc[i].render(scale=scale).to_pil()
+            parts.append(pytesseract.image_to_string(pil) or "")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("OCR failed on page %d: %s", i + 1, e)
+    return "\n\n".join(p for p in parts if p.strip()).strip()
+
+
+def extract_text(pdf_bytes: bytes) -> tuple[str, int, str]:
+    """Extract text from a PDF, OCR'ing scanned pages when needed.
+
+    Returns (text, page_count, method) where method is "text" or "ocr".
+    Raises AnalysisError if the PDF can't be opened or yields no readable text.
     """
-    if pdfplumber is None:
+    if pdfium is None:
         raise AnalysisError("PDF engine unavailable on the server.")
     try:
-        parts: list[str] = []
-        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-            page_count = len(pdf.pages)
-            for page in pdf.pages:
-                parts.append(page.extract_text() or "")
-    except Exception as e:  # noqa: BLE001 - want a clean user-facing error
-        logger.error("PDF parse failed: %s", e)
-        raise AnalysisError("Could not read this PDF. It may be corrupted or password-protected.")
+        doc = pdfium.PdfDocument(pdf_bytes)
+        page_count = len(doc)
+    except Exception as e:  # noqa: BLE001
+        logger.error("PDF open failed: %s", e)
+        raise AnalysisError("Could not open this PDF. It may be corrupted or password-protected.")
 
-    text = "\n\n".join(p for p in parts if p.strip())
-    if len(text.strip()) < 40:
+    if page_count == 0:
+        raise AnalysisError("This PDF has no pages.")
+
+    native = _native_text(doc)
+    if len(native) >= TEXT_MIN_CHARS:
+        return native, page_count, "text"
+
+    # Looks scanned/image-only — OCR it.
+    logger.info("Native text thin (%d chars) — running OCR on up to %d pages", len(native), MAX_OCR_PAGES)
+    ocr = _ocr_text(doc)
+    if len(ocr) < 40:
         raise AnalysisError(
-            "No readable text found. This looks like a scanned image — try a text-based PDF."
+            "Couldn't read any text from this document, even with OCR. "
+            "If it's a photo of a page, try a clearer scan."
         )
-    return text, page_count
+    return ocr, page_count, "ocr"
 
 
 def _call_nim(text: str) -> tuple[str, str]:
@@ -127,17 +175,18 @@ def _call_nim(text: str) -> tuple[str, str]:
 
 
 def analyze_pdf_bytes(pdf_bytes: bytes, filename: str = "document.pdf") -> dict:
-    """Full pipeline: extract text → analyse → structured result.
+    """Full pipeline: extract (text or OCR) → analyse → structured result.
 
-    Returns {filename, pages, model_used, processing_ms, analysis_markdown}.
+    Returns {filename, pages, method, model_used, processing_ms, analysis_markdown}.
     Raises AnalysisError with a user-friendly message on failure.
     """
     start = time.time()
-    text, pages = extract_text(pdf_bytes)
+    text, pages, method = extract_text(pdf_bytes)
     analysis, model = _call_nim(text)
     return {
         "filename": filename,
         "pages": pages,
+        "method": method,  # "text" or "ocr"
         "model_used": model,
         "processing_ms": int((time.time() - start) * 1000),
         "analysis_markdown": analysis,
