@@ -21,10 +21,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, EmailStr
 
-from analyzer import AnalysisError, analyze_pdf_bytes
+from analyzer import AnalysisError, analyze_pdf_bytes, answer_question
+from samples import get_sample, list_samples
 from storage import get_stats, init_storage, record_event, save_waitlist_email
 
 load_dotenv()
@@ -35,6 +36,9 @@ MAX_MB = int(os.getenv("FDA_MAX_FILE_SIZE_MB", "15"))
 GA_MEASUREMENT_ID = os.getenv("GA_MEASUREMENT_ID", "").strip()
 RATE_LIMIT_PER_HOUR = int(os.getenv("FDA_RATE_LIMIT_PER_HOUR", "20"))
 INDEX_PATH = Path(__file__).parent / "static" / "index.html"
+# Public URL of the live site (your Railway/custom domain). Used for canonical
+# links, Open Graph, and the sitemap so search engines index the right address.
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
 
 # Simple in-memory per-IP throttle for /api/analyze (best-effort abuse guard).
 _HITS: dict[str, deque] = defaultdict(deque)
@@ -61,18 +65,75 @@ async def health():
 
 
 # ── Landing + app page ────────────────────────────────────────────────────────
+def _ga_snippet() -> str:
+    if not GA_MEASUREMENT_ID:
+        return "<!-- GA4 disabled: set GA_MEASUREMENT_ID to enable -->"
+    return (
+        f'<script async src="https://www.googletagmanager.com/gtag/js?id={GA_MEASUREMENT_ID}"></script>\n'
+        "<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}"
+        f"gtag('js',new Date());gtag('config','{GA_MEASUREMENT_ID}');</script>"
+    )
+
+
+def _seo_head() -> str:
+    """Canonical link, Open Graph image URL, and JSON-LD structured data.
+
+    Only emits absolute URLs when PUBLIC_BASE_URL is set (your live domain), which
+    is exactly what Google wants for canonicalization. Safe to ship before the
+    domain is chosen — it simply omits the absolute bits until then.
+    """
+    import json
+
+    ld = {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "ClariFi",
+        "applicationCategory": "FinanceApplication",
+        "operatingSystem": "Any (web)",
+        "description": (
+            "Upload a financial PDF — annual report, earnings release, 10-K or statement — "
+            "and get a clear, plain-English AI analysis: key figures, risks, and a bottom line. "
+            "No sign-up. Scanned PDFs supported."
+        ),
+        "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+    }
+    parts = ['<meta name="robots" content="index, follow" />']
+    if PUBLIC_BASE_URL:
+        ld["url"] = PUBLIC_BASE_URL + "/"
+        parts.append(f'<link rel="canonical" href="{PUBLIC_BASE_URL}/" />')
+        parts.append(f'<meta property="og:url" content="{PUBLIC_BASE_URL}/" />')
+    parts.append(
+        '<script type="application/ld+json">' + json.dumps(ld, separators=(",", ":")) + "</script>"
+    )
+    return "\n".join(parts)
+
+
 def _render_index() -> str:
     html = INDEX_PATH.read_text(encoding="utf-8")
-    # Inject the GA4 snippet only when a measurement ID is configured.
-    if GA_MEASUREMENT_ID:
-        snippet = (
-            f'<script async src="https://www.googletagmanager.com/gtag/js?id={GA_MEASUREMENT_ID}"></script>\n'
-            "<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}"
-            f"gtag('js',new Date());gtag('config','{GA_MEASUREMENT_ID}');</script>"
-        )
-    else:
-        snippet = "<!-- GA4 disabled: set GA_MEASUREMENT_ID to enable -->"
-    return html.replace("<!--GA_SNIPPET-->", snippet)
+    return html.replace("<!--GA_SNIPPET-->", _ga_snippet()).replace("<!--SEO_HEAD-->", _seo_head())
+
+
+# ── SEO: robots.txt + sitemap.xml ─────────────────────────────────────────────
+@app.get("/robots.txt", include_in_schema=False)
+async def robots_txt():
+    """Allow crawlers and point them at the sitemap (when the domain is known)."""
+    lines = ["User-agent: *", "Allow: /"]
+    if PUBLIC_BASE_URL:
+        lines.append(f"Sitemap: {PUBLIC_BASE_URL}/sitemap.xml")
+    return PlainTextResponse("\n".join(lines) + "\n")
+
+
+@app.get("/sitemap.xml", include_in_schema=False)
+async def sitemap_xml():
+    """Minimal sitemap so Google can discover the home page."""
+    base = PUBLIC_BASE_URL or ""
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        f"  <url><loc>{base}/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>\n"
+        "</urlset>\n"
+    )
+    return Response(content=xml, media_type="application/xml")
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -130,6 +191,58 @@ async def analyze(request: Request, file: UploadFile = File(...)):
 
     record_event("analyze_succeeded", f"{result['pages']}p {result['model_used']}")
     return JSONResponse(result)
+
+
+# ── Samples (instant demo, no upload needed) ──────────────────────────────────
+@app.get("/api/samples", tags=["app"])
+async def samples_catalogue():
+    """List the demo documents a visitor can preview without uploading their own."""
+    return {"samples": list_samples()}
+
+
+@app.get("/api/samples/{sample_id}", tags=["app"])
+async def sample_detail(sample_id: str):
+    """Return a pre-computed analysis so visitors see real output in one click."""
+    sample = get_sample(sample_id)
+    if not sample:
+        raise HTTPException(status_code=404, detail="Unknown sample.")
+    record_event("sample_viewed", sample_id)
+    return JSONResponse(sample)
+
+
+# ── Follow-up Q&A (stateless — context comes from the client) ─────────────────
+class AskRequest(BaseModel):
+    question: str
+    context: str  # document text (uploads) or analysis markdown (samples)
+
+
+@app.post("/api/ask", tags=["app"])
+async def ask(request: Request, req: AskRequest):
+    """Answer a follow-up question about an already-analyzed document.
+
+    Stateless by design: the browser sends back the document excerpt it received,
+    so the server never has to store the document to support a conversation.
+    """
+    ip = _client_ip(request)
+    if _rate_limited(ip):
+        raise HTTPException(status_code=429, detail="You've hit the hourly limit. Please try again later.")
+    question = (req.question or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Please type a question.")
+    if len(question) > 500:
+        raise HTTPException(status_code=413, detail="That question is too long.")
+
+    record_event("ask_started", question[:120])
+    try:
+        answer, model = answer_question(req.context or "", question)
+    except AnalysisError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:  # noqa: BLE001
+        logger.error("Unexpected ask error: %s", e)
+        raise HTTPException(status_code=500, detail="Couldn't answer that right now. Please try again.")
+
+    record_event("ask_succeeded", model)
+    return {"answer_markdown": answer, "model_used": model}
 
 
 # ── Waitlist ──────────────────────────────────────────────────────────────────

@@ -133,24 +133,18 @@ def extract_text(pdf_bytes: bytes) -> tuple[str, int, str]:
     return ocr, page_count, "ocr"
 
 
-def _call_nim(text: str) -> tuple[str, str]:
-    """Call NIM, walking the model fallback chain. Returns (analysis, model_used)."""
+def _run_chat(messages: list[dict], max_tokens: int = 1200) -> tuple[str, str]:
+    """Call NIM with a message list, walking the model fallback chain.
+
+    Returns (content, model_used). Shared by document analysis and follow-up Q&A.
+    """
     if not NIM_API_KEY:
         raise AnalysisError("Analysis is not configured (missing NIM API key). Please try later.")
 
     headers = {"Authorization": f"Bearer {NIM_API_KEY}", "Content-Type": "application/json"}
-    user_content = (
-        "Analyse the following financial document and respond using the required sections.\n\n"
-        f"=== DOCUMENT START ===\n{text[:MAX_CHARS]}\n=== DOCUMENT END ==="
-    )
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_content},
-    ]
-
     last_err = "no model responded"
     for model in ANALYSIS_MODELS:
-        payload = {"model": model, "messages": messages, "temperature": 0.2, "max_tokens": 1200}
+        payload = {"model": model, "messages": messages, "temperature": 0.2, "max_tokens": max_tokens}
         try:
             r = requests.post(f"{NIM_BASE_URL}/chat/completions", headers=headers, json=payload, timeout=120)
         except requests.exceptions.Timeout:
@@ -174,11 +168,58 @@ def _call_nim(text: str) -> tuple[str, str]:
     raise AnalysisError("The analysis service is busy right now. Please try again in a moment.")
 
 
+def _call_nim(text: str) -> tuple[str, str]:
+    """Run the full structured analysis over extracted document text."""
+    user_content = (
+        "Analyse the following financial document and respond using the required sections.\n\n"
+        f"=== DOCUMENT START ===\n{text[:MAX_CHARS]}\n=== DOCUMENT END ==="
+    )
+    return _run_chat(
+        [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ]
+    )
+
+
+QA_SYSTEM_PROMPT = (
+    "You are a financial analyst answering a follow-up question about a specific document. "
+    "Use ONLY the provided document content to answer. If the answer isn't in the content, say "
+    "so plainly rather than guessing. Be concise (1-4 sentences or a short bullet list). Never "
+    "invent figures. End by reminding the reader this is not financial advice only if you gave a "
+    "judgement or recommendation."
+)
+
+
+def answer_question(context: str, question: str) -> tuple[str, str]:
+    """Answer a user follow-up question grounded in document text or a prior analysis.
+
+    `context` is the extracted document text (for uploads) or the analysis markdown
+    (for samples). Stateless — nothing is stored. Returns (answer_markdown, model_used).
+    """
+    q = (question or "").strip()
+    if not q:
+        raise AnalysisError("Please type a question.")
+    user_content = (
+        f"=== DOCUMENT CONTENT START ===\n{(context or '')[:MAX_CHARS]}\n=== DOCUMENT CONTENT END ===\n\n"
+        f"Question: {q}"
+    )
+    return _run_chat(
+        [
+            {"role": "system", "content": QA_SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ],
+        max_tokens=600,
+    )
+
+
 def analyze_pdf_bytes(pdf_bytes: bytes, filename: str = "document.pdf") -> dict:
     """Full pipeline: extract (text or OCR) → analyse → structured result.
 
-    Returns {filename, pages, method, model_used, processing_ms, analysis_markdown}.
-    Raises AnalysisError with a user-friendly message on failure.
+    Returns {filename, pages, method, model_used, processing_ms, analysis_markdown,
+    text_excerpt}. The excerpt is returned so the browser can hold context for
+    follow-up questions without the server storing the document. Raises
+    AnalysisError with a user-friendly message on failure.
     """
     start = time.time()
     text, pages, method = extract_text(pdf_bytes)
@@ -190,4 +231,5 @@ def analyze_pdf_bytes(pdf_bytes: bytes, filename: str = "document.pdf") -> dict:
         "model_used": model,
         "processing_ms": int((time.time() - start) * 1000),
         "analysis_markdown": analysis,
+        "text_excerpt": text[:MAX_CHARS],
     }
