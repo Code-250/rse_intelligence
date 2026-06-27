@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ClariFi — Understand any financial document in seconds</title>
+<meta name="description" content="Upload a financial PDF — an annual report, earnings release or statement — and get a clear, plain-English AI analysis: key figures, risks, and a bottom line. No sign-up." />
+<meta name="keywords" content="financial document analyzer, annual report summary, 10-K summary, AI financial analysis, read financial statements, earnings release summary, understand financial PDF" />
+<meta property="og:title" content="ClariFi — Understand any financial document in seconds" />
+<meta property="og:description" content="Plain-English AI analysis of any financial PDF: key figures, risks, and a bottom line. No sign-up, results in under a minute." />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="ClariFi" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="ClariFi — Understand any financial document in seconds" />
+<meta name="twitter:description" content="Plain-English AI analysis of any financial PDF: key figures, risks, and a bottom line. No sign-up." />
+<!--SEO_HEAD-->
+<!--GA_SNIPPET-->
+<style>
+  :root{
+    --bg:#0a0f1f; --panel:#121a30; --panel2:#0e1528; --panel3:#0c1430;
+    --line:#22304f; --line2:#2c3c61;
+    --text:#eef2ff; --muted:#9fb0d0; --muted2:#7d8eb3;
+    --brand:#4f8cff; --brand-soft:#73a8ff; --brand2:#36d6a0; --brand2-dark:#1f9d72;
+    --danger:#ff6b6b; --amber:#ffc861;
+    --radius:16px; --radius-sm:12px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:
+      radial-gradient(1100px 520px at 78% -8%,#1a2752 0,rgba(10,15,31,0) 55%),
+      radial-gradient(900px 480px at 8% 4%,#11233f 0,rgba(10,15,31,0) 50%),
+      var(--bg);
+    color:var(--text);line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:920px;margin:0 auto;padding:22px}
+  a{color:var(--brand-soft);text-decoration:none}
+  a:hover{text-decoration:underline}
+
+  header.nav{display:flex;align-items:center;justify-content:space-between;padding:6px 0 18px;gap:12px}
+  .logo{font-weight:800;font-size:21px;letter-spacing:.2px;display:flex;align-items:center;gap:9px}
+  .logo .mark{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,var(--brand),var(--brand2));
+    display:inline-flex;align-items:center;justify-content:center;color:#05122b;font-size:15px;font-weight:900}
+  .logo span{color:var(--brand)}
+  .nav-cta{font-size:13px;color:var(--muted);border:1px solid var(--line);padding:8px 13px;border-radius:999px;
+    cursor:pointer;background:transparent}
+  .nav-cta:hover{border-color:var(--line2);color:var(--text)}
+
+  .hero{text-align:center;padding:26px 0 6px}
+  .badge{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--brand2);
+    border:1px solid rgba(54,214,160,.32);background:rgba(54,214,160,.07);padding:6px 13px;border-radius:999px}
+  .badge i{width:6px;height:6px;border-radius:50%;background:var(--brand2);display:inline-block}
+  .hero h1{font-size:clamp(30px,5.4vw,50px);line-height:1.08;margin:.42em auto .1em;max-width:14ch;font-weight:800;
+    letter-spacing:-.5px}
+  .hero h1 em{font-style:normal;background:linear-gradient(90deg,var(--brand),var(--brand2));
+    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .hero p.sub{color:var(--muted);font-size:clamp(15px,2.3vw,18.5px);max-width:600px;margin:14px auto 0}
+
+  .card{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);
+    border-radius:var(--radius);padding:22px}
+  .uploader{margin-top:26px;scroll-margin-top:20px}
+  .drop{border:2px dashed var(--line2);border-radius:14px;padding:34px 18px;text-align:center;cursor:pointer;
+    transition:.15s border-color,.15s background}
+  .drop:hover,.drop.drag{border-color:var(--brand);background:rgba(79,140,255,.07)}
+  .drop .up{font-size:26px;line-height:1;margin-bottom:8px}
+  .drop strong{color:var(--text);font-size:16px}
+  .drop small{color:var(--muted);display:block;margin-top:7px}
+  .file{margin-top:14px;display:none;align-items:center;justify-content:space-between;gap:12px;
+    background:var(--panel3);border:1px solid var(--line);border-radius:var(--radius-sm);padding:11px 14px}
+  .file.show{display:flex}
+  .file .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
+  .btn{appearance:none;border:0;border-radius:var(--radius-sm);padding:14px 18px;font-size:15.5px;font-weight:700;
+    cursor:pointer;color:#05122b;background:linear-gradient(90deg,var(--brand),var(--brand-soft));width:100%;margin-top:14px}
+  .btn:hover{filter:brightness(1.05)}
+  .btn:disabled{opacity:.5;cursor:not-allowed;filter:none}
+  .btn.ghost{background:transparent;color:var(--text);border:1px solid var(--line2)}
+  .btn.ghost:hover{background:rgba(255,255,255,.04);filter:none}
+  .btn.sm{width:auto;margin:0;padding:9px 14px;font-size:13.5px}
+
+  .samples{margin-top:18px}
+  .samples .lbl{font-size:13px;color:var(--muted2);text-align:center;margin-bottom:10px}
+  .samples .lbl b{color:var(--text);font-weight:600}
+  .sample-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+  .chip{text-align:left;background:var(--panel3);border:1px solid var(--line);border-radius:var(--radius-sm);
+    padding:12px 13px;cursor:pointer;transition:.14s border-color,.14s transform;color:var(--text)}
+  .chip:hover{border-color:var(--brand);transform:translateY(-1px)}
+  .chip .t{font-weight:700;font-size:13.5px;display:flex;align-items:center;gap:7px}
+  .chip .t .ic{font-size:15px}
+  .chip .b{color:var(--muted);font-size:12px;margin-top:3px}
+
+  .muted{color:var(--muted)}
+  .err{color:var(--danger);margin-top:12px;min-height:1em;font-size:14px}
+  .spinner{display:inline-block;width:17px;height:17px;border:3px solid rgba(5,18,43,.3);
+    border-top-color:#05122b;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-3px;margin-right:8px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .result{display:none;margin-top:22px;scroll-margin-top:16px}
+  .result.show{display:block}
+  .result .rhead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+    margin-bottom:6px}
+  .result .rhead .tag{font-size:12px;color:var(--brand2);border:1px solid rgba(54,214,160,.3);
+    background:rgba(54,214,160,.07);padding:4px 10px;border-radius:999px}
+  .result .ractions{display:flex;gap:8px}
+  .result h2{font-size:17.5px;margin:20px 0 7px;color:var(--brand2)}
+  .result h2:first-child{margin-top:4px}
+  .result ul{margin:6px 0 6px 4px;padding:0;list-style:none}
+  .result li{margin:6px 0;padding-left:20px;position:relative}
+  .result li::before{content:"";position:absolute;left:4px;top:9px;width:6px;height:6px;border-radius:50%;
+    background:var(--brand)}
+  .result p{margin:8px 0}
+  .result em{color:var(--muted2);font-style:italic}
+  .result .meta{font-size:12px;color:var(--muted2);margin-top:18px;border-top:1px solid var(--line);padding-top:11px}
+
+  .trust{display:flex;flex-wrap:wrap;gap:16px;justify-content:center;margin-top:18px;color:var(--muted);font-size:13px}
+  .trust span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--brand2);display:inline-block}
+
+  .section{margin-top:46px}
+  .section h3.sh{text-align:center;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted2);
+    font-weight:700;margin:0 0 22px}
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+  .step{background:var(--panel3);border:1px solid var(--line);border-radius:var(--radius);padding:18px}
+  .step .n{width:30px;height:30px;border-radius:9px;background:rgba(79,140,255,.14);color:var(--brand-soft);
+    font-weight:800;display:flex;align-items:center;justify-content:center;font-size:15px;margin-bottom:11px}
+  .step h4{margin:0 0 5px;font-size:15.5px}
+  .step p{margin:0;color:var(--muted);font-size:13.5px}
+
+  .uses{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+  .use{background:var(--panel3);border:1px solid var(--line);border-radius:var(--radius);padding:16px 17px}
+  .use h4{margin:0 0 4px;font-size:14.5px}
+  .use p{margin:0;color:var(--muted);font-size:13px}
+
+  .faq{max-width:720px;margin:0 auto}
+  details{border:1px solid var(--line);border-radius:var(--radius-sm);padding:2px 16px;margin-bottom:10px;
+    background:var(--panel3)}
+  details summary{cursor:pointer;padding:14px 0;font-weight:600;font-size:14.5px;list-style:none;
+    display:flex;align-items:center;justify-content:space-between;gap:12px}
+  details summary::-webkit-details-marker{display:none}
+  details summary::after{content:"+";color:var(--muted);font-size:20px;font-weight:400}
+  details[open] summary::after{content:"–"}
+  details p{margin:0 0 14px;color:var(--muted);font-size:13.5px}
+
+  .ask{margin-top:20px;border-top:1px solid var(--line);padding-top:16px}
+  .ask-h{font-size:14px;font-weight:700;color:var(--text);margin-bottom:10px}
+  .ask-form{display:flex;gap:10px;flex-wrap:wrap}
+  .ask-form input{flex:1;min-width:200px;background:var(--bg);border:1px solid var(--line2);
+    border-radius:var(--radius-sm);color:var(--text);padding:13px 14px;font-size:14.5px}
+  .ask-form input:focus{outline:none;border-color:var(--brand)}
+  .ask-suggest{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .ask-suggest button{background:transparent;border:1px solid var(--line2);color:var(--muted);
+    border-radius:999px;padding:6px 12px;font-size:12.5px;cursor:pointer}
+  .ask-suggest button:hover{border-color:var(--brand);color:var(--text)}
+  .ask-thread{margin-top:14px;display:flex;flex-direction:column;gap:12px}
+  .qa{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);padding:12px 14px}
+  .qa .q{font-size:13.5px;font-weight:700;color:var(--brand-soft);margin-bottom:6px}
+  .qa .a{font-size:14px;color:var(--text)}
+  .qa .a p{margin:6px 0}
+  .qa .a ul{margin:6px 0 6px 4px;padding:0;list-style:none}
+  .qa .a li{margin:5px 0;padding-left:18px;position:relative}
+  .qa .a li::before{content:"";position:absolute;left:3px;top:8px;width:5px;height:5px;border-radius:50%;background:var(--brand)}
+  .wlcard{margin-top:18px;background:var(--panel3);border:1px solid var(--line)}
+  .wl{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
+  .wl input{flex:1;min-width:200px;background:var(--bg);border:1px solid var(--line2);border-radius:var(--radius-sm);
+    color:var(--text);padding:13px 14px;font-size:15px}
+  .wl input:focus{outline:none;border-color:var(--brand)}
+  .wl button{width:auto;margin:0}
+
+  .disclaimer{font-size:12px;color:var(--muted2);text-align:center;margin-top:14px}
+  footer{color:var(--muted2);font-size:12.5px;text-align:center;margin:34px 0 14px;border-top:1px solid var(--line);
+    padding-top:18px}
+  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:#0c1430;
+    border:1px solid var(--line2);color:var(--text);padding:11px 18px;border-radius:999px;font-size:13.5px;
+    opacity:0;pointer-events:none;transition:.2s;z-index:50}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="nav">
+    <div class="logo"><span class="mark">C</span>Clari<span>Fi</span></div>
+    <button class="nav-cta" onclick="document.getElementById('uploader').scrollIntoView()">Analyze a document</button>
+  </header>
+
+  <section class="hero">
+    <span class="badge"><i></i> AI financial document analysis · no sign-up</span>
+    <h1>Understand any <em>financial document</em> in seconds</h1>
+    <p class="sub">Upload an annual report, earnings release, or statement. Get a clear, plain-English
+       summary — key figures, risks, and a bottom line — without reading 100 pages.</p>
+  </section>
+
+  <section class="card uploader" id="uploader">
+    <div id="drop" class="drop" tabindex="0" role="button" aria-label="Upload a PDF">
+      <div class="up">📄</div>
+      <strong>Drop a PDF here, or click to choose</strong>
+      <small>Annual reports, 10-Ks, earnings releases, bank statements · scanned PDFs supported · up to 15&nbsp;MB</small>
+    </div>
+    <input id="fileInput" type="file" accept="application/pdf,.pdf" hidden />
+
+    <div id="fileRow" class="file">
+      <div class="name" id="fileName">—</div>
+      <button class="btn ghost sm" id="clearBtn">Remove</button>
+    </div>
+
+    <button class="btn" id="analyzeBtn" disabled>Analyze document</button>
+    <div class="err" id="err"></div>
+
+    <div class="samples">
+      <div class="lbl">No PDF handy? <b>See a real analysis instantly →</b></div>
+      <div class="sample-row" id="sampleRow"></div>
+    </div>
+
+    <div class="trust">
+      <span><i class="dot"></i> No account required</span>
+      <span><i class="dot"></i> Your document isn't stored</span>
+      <span><i class="dot"></i> Results in ~10–30s</span>
+    </div>
+  </section>
+
+  <section class="card result" id="result">
+    <div class="rhead">
+      <span class="tag" id="resultTag">Analysis</span>
+      <div class="ractions">
+        <button class="btn ghost sm" id="copyBtn">Copy</button>
+        <button class="btn ghost sm" id="downloadBtn">Download</button>
+      </div>
+    </div>
+    <div id="analysis"></div>
+    <div class="meta" id="meta"></div>
+
+    <div class="ask">
+      <div class="ask-h">Ask a follow-up about this document</div>
+      <form class="ask-form" id="askForm">
+        <input id="askInput" type="text" maxlength="500" placeholder="e.g. What's the debt-to-equity? Explain the biggest risk." />
+        <button class="btn sm" type="submit" id="askBtn" style="padding:13px 18px">Ask</button>
+      </form>
+      <div class="ask-suggest" id="askSuggest">
+        <button type="button" data-q="What are the biggest risks here?">Biggest risks?</button>
+        <button type="button" data-q="Is this company growing or shrinking?">Growing or shrinking?</button>
+        <button type="button" data-q="Explain the key figures in simple terms.">Explain the figures</button>
+      </div>
+      <div class="ask-thread" id="askThread"></div>
+    </div>
+
+    <div class="card wlcard">
+      <strong>Want this for your whole portfolio?</strong>
+      <div class="muted" style="font-size:14px;margin-top:4px">Leave your email and we'll let you know when batch analysis, saved reports, and side-by-side comparison launch.</div>
+      <form class="wl" id="wlForm">
+        <input id="wlEmail" type="email" placeholder="you@example.com" required />
+        <button class="btn sm" type="submit" style="padding:13px 18px">Keep me posted</button>
+      </form>
+      <div class="muted" id="wlMsg" style="font-size:13px;margin-top:8px"></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h3 class="sh">How it works</h3>
+    <div class="steps">
+      <div class="step"><div class="n">1</div><h4>Upload a PDF</h4><p>Any financial document — even a scanned one. We read the text and OCR scans automatically.</p></div>
+      <div class="step"><div class="n">2</div><h4>AI reads it</h4><p>A senior-analyst AI extracts the numbers that matter and reasons over them in plain English.</p></div>
+      <div class="step"><div class="n">3</div><h4>You get clarity</h4><p>A summary, key figures, risks &amp; red flags, and a one-line bottom line — copy or download it.</p></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h3 class="sh">Who it's for</h3>
+    <div class="uses">
+      <div class="use"><h4>Retail investors</h4><p>Make sense of an annual report or 10-K before you buy a stock.</p></div>
+      <div class="use"><h4>Founders &amp; SMEs</h4><p>Read a statement, term sheet, or supplier's accounts in minutes.</p></div>
+      <div class="use"><h4>Students &amp; analysts</h4><p>Get oriented in a long filing fast, then dig into the details yourself.</p></div>
+      <div class="use"><h4>Anyone with a statement</h4><p>Turn a dense bank or fund statement into a plain-English picture.</p></div>
+    </div>
+  </section>
+
+  <section class="section faq">
+    <h3 class="sh">Questions</h3>
+    <details><summary>Is this financial advice?</summary><p>No. ClariFi produces an automated draft to help you understand a document faster. It's a starting point for your own review — always verify figures against the source and consult a professional for decisions.</p></details>
+    <details><summary>Do you store my document?</summary><p>No. Your file is analyzed in memory and not saved. We only keep anonymous usage counts so we can improve the product.</p></details>
+    <details><summary>What documents work best?</summary><p>Annual reports, 10-Ks, earnings releases, financial statements, and bank or fund statements. Both normal and scanned image-only PDFs work — scans are read with OCR.</p></details>
+    <details><summary>How accurate is it?</summary><p>The AI is instructed never to invent figures and to flag anything uncertain, especially on scanned documents. It's accurate enough to orient you quickly, but it's a draft — double-check anything you'll act on.</p></details>
+    <details><summary>Is it free?</summary><p>Right now, yes — analyze documents at no cost while we're in early access. Join the waitlist to hear when paid features like batch analysis and saved reports arrive.</p></details>
+  </section>
+
+  <p class="disclaimer">ClariFi produces an automated draft to assist your own review. It is not financial advice.</p>
+  <footer>© <span id="yr"></span> RSE Intelligence · ClariFi — clarity for any financial document</footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  document.getElementById('yr').textContent = new Date().getFullYear();
+  var track = function(name, params){ try{ if(typeof gtag==='function'){ gtag('event', name, params||{}); } }catch(e){} };
+
+  var drop = document.getElementById('drop');
+  var input = document.getElementById('fileInput');
+  var fileRow = document.getElementById('fileRow');
+  var fileName = document.getElementById('fileName');
+  var analyzeBtn = document.getElementById('analyzeBtn');
+  var clearBtn = document.getElementById('clearBtn');
+  var errEl = document.getElementById('err');
+  var resultEl = document.getElementById('result');
+  var analysisEl = document.getElementById('analysis');
+  var metaEl = document.getElementById('meta');
+  var resultTag = document.getElementById('resultTag');
+  var selected = null;
+  var lastMarkdown = '';
+  var lastName = 'analysis';
+  var askContext = '';
+
+  function toast(msg){ var t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
+    clearTimeout(t._h); t._h=setTimeout(function(){ t.classList.remove('show'); }, 1800); }
+
+  function setFile(f){
+    if(!f) return;
+    if(f.type !== 'application/pdf' && !/\.pdf$/i.test(f.name)){ showErr('Please choose a PDF file.'); return; }
+    if(f.size > 15*1024*1024){ showErr('That file is larger than 15 MB.'); return; }
+    selected = f; errEl.textContent='';
+    fileName.textContent = f.name + '  ·  ' + (f.size/1024/1024).toFixed(1) + ' MB';
+    fileRow.classList.add('show'); analyzeBtn.disabled = false;
+    track('file_selected', {file_mb: +(f.size/1024/1024).toFixed(2)});
+  }
+  function clearFile(){ selected=null; input.value=''; fileRow.classList.remove('show'); analyzeBtn.disabled=true; }
+  function showErr(m){ errEl.textContent = m; }
+
+  drop.addEventListener('click', function(){ input.click(); });
+  drop.addEventListener('keydown', function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); input.click(); } });
+  input.addEventListener('change', function(){ setFile(input.files[0]); });
+  clearBtn.addEventListener('click', clearFile);
+  ['dragenter','dragover'].forEach(function(ev){ drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.add('drag'); }); });
+  ['dragleave','drop'].forEach(function(ev){ drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.remove('drag'); }); });
+  drop.addEventListener('drop', function(e){ if(e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]); });
+
+  function esc(s){ return s.replace(/[&<>]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; }); }
+  function renderMd(md){
+    var lines = esc(md).split('\n'); var html=''; var inList=false;
+    lines.forEach(function(ln){
+      if(/^##\s+/.test(ln)){ if(inList){html+='</ul>';inList=false;} html+='<h2>'+ln.replace(/^##\s+/,'')+'</h2>'; }
+      else if(/^[-*]\s+/.test(ln)){ if(!inList){html+='<ul>';inList=true;} html+='<li>'+ln.replace(/^[-*]\s+/,'')+'</li>'; }
+      else { if(inList){html+='</ul>';inList=false;} var t=ln.trim(); if(t){ html+='<p>'+t+'</p>'; } }
+    });
+    if(inList) html+='</ul>';
+    return html.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/_([^_]+)_/g,'<em>$1</em>');
+  }
+
+  function showResult(data, sampleLabel){
+    lastMarkdown = data.analysis_markdown || '';
+    lastName = (data.filename || 'analysis').replace(/\.pdf$/i,'');
+    // Context for follow-ups: full document text for uploads, the analysis for samples.
+    askContext = data.text_excerpt || lastMarkdown;
+    document.getElementById('askThread').innerHTML = '';
+    document.getElementById('askInput').value = '';
+    analysisEl.innerHTML = renderMd(lastMarkdown);
+    resultTag.textContent = sampleLabel ? ('Sample · ' + sampleLabel) : 'Your analysis';
+    metaEl.textContent = data.pages + ' pages · ' + (data.processing_ms/1000).toFixed(1) + 's · '
+      + (data.method === 'ocr' ? 'OCR · ' : '') + 'model: ' + data.model_used
+      + (sampleLabel ? ' · example output' : '');
+    resultEl.classList.add('show');
+    resultEl.scrollIntoView({behavior:'smooth', block:'start'});
+  }
+
+  var sampleRow = document.getElementById('sampleRow');
+  var ICONS = {'growth-tech':'📈','distressed-retail':'⚠️','bank-statement':'🧾'};
+  fetch('/api/samples').then(function(r){ return r.json(); }).then(function(d){
+    (d.samples||[]).forEach(function(s){
+      var b = document.createElement('button');
+      b.className = 'chip';
+      b.innerHTML = '<div class="t"><span class="ic">'+(ICONS[s.id]||'📄')+'</span>'+esc(s.label)+'</div><div class="b">'+esc(s.blurb)+'</div>';
+      b.addEventListener('click', function(){ viewSample(s.id, s.label); });
+      sampleRow.appendChild(b);
+    });
+  }).catch(function(){ document.querySelector('.samples').style.display='none'; });
+
+  function viewSample(id, label){
+    errEl.textContent=''; track('sample_viewed', {id:id});
+    fetch('/api/samples/'+encodeURIComponent(id)).then(function(r){ return r.json(); }).then(function(data){
+      showResult(data, label);
+    }).catch(function(){ showErr('Could not load that sample right now.'); });
+  }
+
+  analyzeBtn.addEventListener('click', async function(){
+    if(!selected) return;
+    errEl.textContent=''; resultEl.classList.remove('show');
+    analyzeBtn.disabled = true;
+    var original = analyzeBtn.innerHTML;
+    analyzeBtn.innerHTML = '<span class="spinner"></span>Analyzing…';
+    track('analyze_started', {});
+    var t0 = Date.now();
+    try{
+      var fd = new FormData(); fd.append('file', selected);
+      var res = await fetch('/api/analyze', {method:'POST', body: fd});
+      var data = await res.json();
+      if(!res.ok){ throw new Error(data.detail || 'Analysis failed.'); }
+      showResult(data, null);
+      track('analyze_succeeded', {pages:data.pages, seconds:+((Date.now()-t0)/1000).toFixed(1)});
+    }catch(e){
+      showErr(e.message || 'Something went wrong. Please try again.');
+      track('analyze_failed', {message:(e.message||'').slice(0,80)});
+    }finally{
+      analyzeBtn.disabled=false; analyzeBtn.innerHTML = original;
+    }
+  });
+
+  // ── Ask a follow-up ────────────────────────────────────────────────────────
+  var askForm = document.getElementById('askForm');
+  var askInput = document.getElementById('askInput');
+  var askBtn = document.getElementById('askBtn');
+  var askThread = document.getElementById('askThread');
+
+  function addQA(question){
+    var wrap = document.createElement('div'); wrap.className = 'qa';
+    wrap.innerHTML = '<div class="q">'+esc(question)+'</div><div class="a"><span class="spinner" style="border-color:rgba(159,176,208,.3);border-top-color:var(--brand)"></span>Thinking…</div>';
+    askThread.appendChild(wrap);
+    wrap.scrollIntoView({behavior:'smooth', block:'nearest'});
+    return wrap.querySelector('.a');
+  }
+
+  async function ask(question){
+    question = (question || '').trim();
+    if(!question || !askContext) return;
+    askInput.value = ''; askBtn.disabled = true;
+    var ansEl = addQA(question);
+    track('ask_started', {});
+    try{
+      var res = await fetch('/api/ask', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({question:question, context:askContext})});
+      var data = await res.json();
+      if(!res.ok){ throw new Error(data.detail || 'Could not answer that.'); }
+      ansEl.innerHTML = renderMd(data.answer_markdown || '');
+      track('ask_succeeded', {});
+    }catch(e){
+      ansEl.innerHTML = '<span style="color:var(--danger)">'+esc(e.message||'Something went wrong.')+'</span>';
+      track('ask_failed', {});
+    }finally{ askBtn.disabled = false; }
+  }
+
+  askForm.addEventListener('submit', function(e){ e.preventDefault(); ask(askInput.value); });
+  document.getElementById('askSuggest').addEventListener('click', function(e){
+    var b = e.target.closest('button[data-q]'); if(b){ ask(b.getAttribute('data-q')); }
+  });
+
+  document.getElementById('copyBtn').addEventListener('click', function(){
+    if(!lastMarkdown) return;
+    navigator.clipboard.writeText(lastMarkdown).then(function(){ toast('Analysis copied'); track('analysis_copied',{}); })
+      .catch(function(){ toast('Copy failed'); });
+  });
+  document.getElementById('downloadBtn').addEventListener('click', function(){
+    if(!lastMarkdown) return;
+    var blob = new Blob([lastMarkdown], {type:'text/markdown'});
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = (lastName || 'analysis') + '-clarifi.md'; document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(a.href); track('analysis_downloaded',{});
+  });
+
+  document.getElementById('wlForm').addEventListener('submit', async function(e){
+    e.preventDefault();
+    var email = document.getElementById('wlEmail').value.trim();
+    var msg = document.getElementById('wlMsg');
+    if(!email){ return; }
+    try{
+      var res = await fetch('/api/waitlist', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email:email})});
+      if(res.ok){ msg.textContent = "Thanks — you're on the list."; document.getElementById('wlEmail').value=''; track('waitlist_signup', {}); }
+      else { var d = await res.json().catch(function(){return {};}); msg.textContent = (d.detail && d.detail[0] && d.detail[0].msg) || d.detail || 'Please enter a valid email.'; }
+    }catch(e){ msg.textContent = 'Could not save right now — please try again.'; }
+  });
+</script>
+</body>
+</html>
